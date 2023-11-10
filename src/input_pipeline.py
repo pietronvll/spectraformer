@@ -10,8 +10,8 @@ class RamanSpectraDataset(torch.utils.data.Dataset):
     def __init__(self, configs, train_ratio: float = 0.8, rng_seed=None):
         self.configs = configs
         raw_data = load_data(self.configs.data_path)
-        outliers = find_outliers(raw_data["counts"])
-
+        outliers, sup_norm_deviations = find_outliers(raw_data["counts"])
+        self._sup_norm_deviations = sup_norm_deviations
         # Filtering outliers
         self.raman_shifts = raw_data["raman_shift"][~outliers, ...]
         self.counts = raw_data["counts"][~outliers, ...]
@@ -63,7 +63,9 @@ class RamanSpectraDataset(torch.utils.data.Dataset):
 def normalize_counts(
     counts: torch.tensor, raman_shift: torch.tensor, correction_coeff=5.0
 ):
-    # total_counts = torch.trapezoid(counts, x=raman_shift, dim=-1)
+    background_idxs = ((raman_shift[0] > 2200) & (raman_shift[0] < 2400)).nonzero()
+    background = counts[:, background_idxs[:, 0]].mean(1)
+    counts = counts - background[:, None]
     shifts_around_1800 = ((raman_shift[0] > 1800) & (raman_shift[0] < 1900)).nonzero()
     counts_around_1800 = counts[:, shifts_around_1800[:, 0]].mean(1)
     return counts / (counts_around_1800[:, None] * correction_coeff)
@@ -74,14 +76,14 @@ def mask_raman_shift(raman_shift: torch.tensor, min_shift: float, max_shift: int
     return masked
 
 
-def find_outliers(normalized_counts: torch.tensor, threshold: float = 0.1):
+def find_outliers(normalized_counts: torch.tensor, threshold: float = 0.4):
     median_spectra = torch.median(normalized_counts, dim=0, keepdim=True).values[0]
     sup_norm_deviations = torch.tensor(
         [torch.max(torch.abs(sp - median_spectra)) for sp in normalized_counts]
     )
     outliers = sup_norm_deviations > threshold
     print(f"Found {outliers.sum()} outliers out of {outliers.shape[0]} spectra")
-    return outliers
+    return outliers, sup_norm_deviations
 
 
 def load_data(path: PathLike):
