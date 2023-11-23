@@ -10,6 +10,8 @@ class RamanSpectraDataset(torch.utils.data.Dataset):
     def __init__(self, configs, train_ratio: float = 0.8, rng_seed=None):
         self.configs = configs
         raw_data = load_data(self.configs.data_path)
+        # Normalizing counts
+        raw_data = normalize_counts(raw_data)
         outliers, sup_norm_deviations = find_outliers(raw_data["counts"])
         self._sup_norm_deviations = sup_norm_deviations
         # Filtering outliers
@@ -60,15 +62,13 @@ class RamanSpectraDataset(torch.utils.data.Dataset):
         return copy.deepcopy(self)
 
 
-def normalize_counts(
-    counts: torch.tensor, raman_shift: torch.tensor, correction_coeff=5.0
-):
-    background_idxs = ((raman_shift[0] > 2200) & (raman_shift[0] < 2400)).nonzero()
+def normalize_counts(dataset):
+    raman_shift, counts = dataset["raman_shift"], dataset["counts"]
+    background_idxs = ((raman_shift[0] > 2100) & (raman_shift[0] < 2600)).nonzero()
     background = counts[:, background_idxs[:, 0]].mean(1)
     counts = counts - background[:, None]
-    shifts_around_1800 = ((raman_shift[0] > 1800) & (raman_shift[0] < 1900)).nonzero()
-    counts_around_1800 = counts[:, shifts_around_1800[:, 0]].mean(1)
-    return counts / (counts_around_1800[:, None] * correction_coeff)
+    counts = counts / torch.max(counts, dim=1, keepdim=True)[0]
+    return {"raman_shift": raman_shift, "counts": 1.5 * counts}
 
 
 def mask_raman_shift(raman_shift: torch.tensor, min_shift: float, max_shift: int):
@@ -76,7 +76,7 @@ def mask_raman_shift(raman_shift: torch.tensor, min_shift: float, max_shift: int
     return masked
 
 
-def find_outliers(normalized_counts: torch.tensor, threshold: float = 0.4):
+def find_outliers(normalized_counts: torch.tensor, threshold: float = 0.2):
     median_spectra = torch.median(normalized_counts, dim=0, keepdim=True).values[0]
     sup_norm_deviations = torch.tensor(
         [torch.max(torch.abs(sp - median_spectra)) for sp in normalized_counts]
@@ -97,6 +97,4 @@ def load_data(path: PathLike):
         sorted_counts.append(row[row_perm[row_idx]])
     counts = torch.stack(sorted_counts).float()
     raman_shift = raman_shift.float()
-
-    counts = normalize_counts(counts, raman_shift)
     return {"raman_shift": raman_shift, "counts": counts}

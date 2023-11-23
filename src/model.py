@@ -31,5 +31,3 @@ class SpectraFormer(torch.nn.Module):
         x = self.transformer(x)
         x = self.lin_final(x).squeeze(-1)
         return x
-        x = self.lin_final(x).squeeze(-1)
-        return x
