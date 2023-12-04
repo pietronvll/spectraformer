@@ -64,7 +64,7 @@ class RamanSpectraDataset(torch.utils.data.Dataset):
 
 def normalize_counts(dataset):
     raman_shift, counts = dataset["raman_shift"], dataset["counts"]
-    background_idxs = ((raman_shift[0] > 2100) & (raman_shift[0] < 2600)).nonzero()
+    background_idxs = ((raman_shift[0] > 2200) & (raman_shift[0] < 2600)).nonzero()
     background = counts[:, background_idxs[:, 0]].mean(1)
     counts = counts - background[:, None]
     counts = counts / torch.max(counts, dim=1, keepdim=True)[0]
