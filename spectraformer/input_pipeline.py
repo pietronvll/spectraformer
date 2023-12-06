@@ -2,6 +2,7 @@ from typing import Iterator, Optional, TypedDict
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import xarray as xr
 
 
@@ -96,11 +97,13 @@ def batch_sampler(
         # Get the indices for the batch
         indices = perm[i : i + batch_size]
         # Get the spectra
-        spectra = filtered_dataset.isel(spectra=indices).values
+        spectra = np.expand_dims(filtered_dataset.isel(spectra=indices).values, axis=-1)
         # Get the masked spectra
-        masked_spectra = masked_dataset.isel(spectra=indices).values
+        masked_spectra = np.expand_dims(
+            masked_dataset.isel(spectra=indices).values, axis=-1
+        )
         # Get the wave numbers
-        wave_number = filtered_dataset.wave_number.values
+        wave_number = np.expand_dims(filtered_dataset.wave_number.values, axis=-1)
         # Yield the batch
         yield Batch(
             spectra=spectra, masked_spectra=masked_spectra, wave_number=wave_number
