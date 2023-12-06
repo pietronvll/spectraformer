@@ -92,18 +92,20 @@ def batch_sampler(
         n_samples = n_samples - (n_samples % batch_size)
         perm = perm[:n_samples]
 
+    full_spectra = jnp.expand_dims(jnp.asarray(filtered_dataset.values), axis=-1)
+    full_masked_spectra = jnp.expand_dims(jnp.asarray(masked_dataset.values), axis=-1)
+    wave_number = jnp.expand_dims(
+        jnp.asarray(filtered_dataset.wave_number.values), axis=-1
+    )
+
     # Iterate over the dataset
     for i in range(0, n_samples, batch_size):
         # Get the indices for the batch
         indices = perm[i : i + batch_size]
         # Get the spectra
-        spectra = np.expand_dims(filtered_dataset.isel(spectra=indices).values, axis=-1)
+        spectra = full_spectra[indices]
         # Get the masked spectra
-        masked_spectra = np.expand_dims(
-            masked_dataset.isel(spectra=indices).values, axis=-1
-        )
-        # Get the wave numbers
-        wave_number = np.expand_dims(filtered_dataset.wave_number.values, axis=-1)
+        masked_spectra = full_masked_spectra[indices]
         # Yield the batch
         yield Batch(
             spectra=spectra, masked_spectra=masked_spectra, wave_number=wave_number
