@@ -1,3 +1,12 @@
+#### Dec 18, 2023
+
+Updates & next steps:
+1. Architecture almost completely defined. Last thing to check is the position of Layer Norms ~~and Dropouts~~.
+2. Script to measure throughput and choose the batch size. Work locally first, and then use Franklin's `A100`.
+3. Script to select the `lr`, check if using `AdamW` instead of `Adam`
+4. Transformer initialization?
+5. Think about the proper loss function for the kind of noise at hand (poissonian), and the best strategy for masked learning.
+
 #### Dec 5, 2023
 
 **Phase 1 - specifications.**
