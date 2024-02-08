@@ -1,3 +1,13 @@
+#### Feb 8, 2023
+Back to the project. 
+
+1. Working Locally on Mac is impossibly slow.
+2. The basic training pipeline is up and running.
+3. I need to implement a _testing_ pipeline, with a proper data splitting. 
+4. I need to check the data scaling. For now I have added a `layer norm` at the very beginning of the network, but don't think it is sufficient. 
+5. Need to implement cosmetics: logging and checkpointing.
+
+
 #### Dec 18, 2023
 
 Updates & next steps:

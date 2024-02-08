@@ -2,7 +2,6 @@ from typing import Iterator, Optional, TypedDict
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import xarray as xr
 
 
