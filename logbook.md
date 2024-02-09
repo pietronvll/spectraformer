@@ -1,3 +1,9 @@
+#### Feb 9, 2023
+1. Working on GPU is _much_ faster.
+2. I am trying to make it work in a rush. Let's stop, I need loads of time, and a model deployment plan.
+3. Mostly, I also need solid testing and benchmarking utilities.
+
+
 #### Feb 8, 2023
 Back to the project. 
 
