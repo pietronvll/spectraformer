@@ -11,6 +11,17 @@ def preprocess_dataset(
     sup_norm_threshold: float = 0.15,
     verbose: bool = False,
 ) -> xr.DataArray:
+    """Preprocess xarray datasets by subtracting the background, normalizing to the max and removing outliers, i.e. spectra with cosmic rays or other artifacts.
+
+    Args:
+        dataset (xr.DataArray): xarray dataset with the spectra, as created by the preprocessing pipeline.
+        bg_removal_window (tuple, optional): Wavelength window to use as reference to remove the background. Defaults to (2200, 2500) cm^-1.
+        sup_norm_threshold (float, optional): Threshold to discard outliers; a spectra is considered an outlier whence the sup-norm distance with respect to the median is greater than the threshold. Defaults to 0.15.
+        verbose (bool, optional): Defaults to False.
+
+    Returns:
+        xr.DataArray: Processed dataset
+    """
     # Background removal
     bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
     bg_value = bg_removal_window.median()
@@ -32,13 +43,14 @@ def preprocess_dataset(
     return filtered_dataset
 
 
-def get_masked_dataset(
-    dataset: xr.DataArray, mask_window: tuple = (1525, 1650)
+def mask_dataset(
+    dataset: xr.DataArray, mask_window: tuple = (1525, 1650), default_value=-1
 ) -> xr.DataArray:
+    """Mask a dataset by setting the values of a given window to -1."""
     mask = ~(
         (dataset.wave_number < mask_window[1]) & (dataset.wave_number > mask_window[0])
     )
-    return dataset.where(mask, -1)
+    return dataset.where(mask, default_value)
 
 
 # Batch object implemented as a TypedDict

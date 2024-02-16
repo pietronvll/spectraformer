@@ -1,10 +1,14 @@
-#### Feb 9, 2023
+#### Feb 16, 2024
+As working on this project is fragmented, I need to set up a solid schedule. 
+1. Data input-pipeline & trivial benchmark.
+
+#### Feb 9, 2024
 1. Working on GPU is _much_ faster.
 2. I am trying to make it work in a rush. Let's stop, I need loads of time, and a model deployment plan.
 3. Mostly, I also need solid testing and benchmarking utilities.
 
 
-#### Feb 8, 2023
+#### Feb 8, 2024
 Back to the project. 
 
 1. Working Locally on Mac is impossibly slow.
