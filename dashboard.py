@@ -12,7 +12,7 @@ ckpts = Path("checkpoints").resolve()
 checkpointer = ocp.StandardCheckpointer()
 variables = checkpointer.restore(ckpts / "median/100x10")
 
-test_data = xa.load_dataarray(Path("data").resolve() / "SiC+Graphene_8x8.nc")
+test_data = xa.load_dataarray(Path("data").resolve() / "SiC_19x10x3.nc")
 filtered_test_data = preprocess_dataset(test_data)
 
 

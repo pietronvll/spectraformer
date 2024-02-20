@@ -2,6 +2,7 @@ from typing import Iterator, Optional, TypedDict
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import xarray as xr
 
 
@@ -30,16 +31,18 @@ def preprocess_dataset(
     dataset = dataset / dataset.max(dim="wave_number")
 
     # Outlier removal
-    median_counts = dataset.median(dim=["X", "Y"])
+    spatial_dims = dataset.dims[:-1]
+    num_spectra = np.prod([len(dataset[dim]) for dim in spatial_dims]).item()
+    median_counts = dataset.median(dim=spatial_dims)
     sup_norm_deviations = (abs(dataset - median_counts)).max(dim="wave_number")
     filtered_dataset = dataset.where(
         sup_norm_deviations < sup_norm_threshold, drop=True
     )
-    filtered_dataset = filtered_dataset.stack(spectra=("X", "Y")).dropna(dim="spectra")
+    filtered_dataset = filtered_dataset.stack(spectra=spatial_dims).dropna(
+        dim="spectra"
+    )
     if verbose:
-        print(
-            f"Dropped {len(dataset.X)*len(dataset.Y) - len(filtered_dataset.spectra)} spectra"
-        )
+        print(f"Dropped {num_spectra - len(filtered_dataset.spectra)} spectra")
     return filtered_dataset
 
 
@@ -65,6 +68,7 @@ def batch_sampler(
     masked_dataset: xr.DataArray,
     batch_size: Optional[int] = None,
     shuffle: bool = True,
+    norm_wv: bool = True,
     rng_seed=0,
     drop_last=True,
 ) -> Iterator[Batch]:
@@ -108,6 +112,8 @@ def batch_sampler(
     wave_number = jnp.expand_dims(
         jnp.asarray(filtered_dataset.wave_number.values), axis=-1
     )
+    if norm_wv:
+        wave_number = (wave_number - 2000) / 800
 
     # Iterate over the dataset
     for i in range(0, n_samples, batch_size):
