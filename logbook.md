@@ -1,3 +1,8 @@
+#### Feb 21, 2024
+Worked quite a bit on the spectraformer model. Having in place a MVP. Some obvious things to do:
+1. Ad an asymmetric attention matrix masking any _inputs_ from the masked region (but not outputs)
+2. Consolidating the code.
+
 #### Feb 16, 2024
 As working on this project is fragmented, I need to set up a solid schedule. 
 1. Data input-pipeline & trivial benchmark.

@@ -53,7 +53,7 @@ def mask_dataset(
     mask = ~(
         (dataset.wave_number < mask_window[1]) & (dataset.wave_number > mask_window[0])
     )
-    return dataset.where(mask, default_value)
+    return dataset.where(mask, default_value), mask.values
 
 
 # Batch object implemented as a TypedDict
@@ -65,12 +65,13 @@ class Batch(TypedDict):
 
 def batch_sampler(
     filtered_dataset: xr.DataArray,
-    masked_dataset: xr.DataArray,
+    mask_window: tuple = (1525, 1650),
     batch_size: Optional[int] = None,
     shuffle: bool = True,
     norm_wv: bool = True,
     rng_seed=0,
     drop_last=True,
+    default_mask_value=-1,
 ) -> Iterator[Batch]:
     """Batch sampler for the dataset
 
@@ -86,6 +87,9 @@ def batch_sampler(
     """
 
     # Reorder dimensions of datasets
+    masked_dataset, mask = mask_dataset(
+        filtered_dataset, mask_window=mask_window, default_value=default_mask_value
+    )
     filtered_dataset = filtered_dataset.transpose("spectra", "wave_number")
     masked_dataset = masked_dataset.transpose("spectra", "wave_number")
 
@@ -112,8 +116,9 @@ def batch_sampler(
     wave_number = jnp.expand_dims(
         jnp.asarray(filtered_dataset.wave_number.values), axis=-1
     )
+    mask = jnp.expand_dims(mask, axis=-1)
     if norm_wv:
-        wave_number = (wave_number - 2000) / 800
+        wave_number = (wave_number - 2000) / 800  # Pretty arbitrary, but works.
 
     # Iterate over the dataset
     for i in range(0, n_samples, batch_size):
@@ -125,5 +130,8 @@ def batch_sampler(
         masked_spectra = full_masked_spectra[indices]
         # Yield the batch
         yield Batch(
-            spectra=spectra, masked_spectra=masked_spectra, wave_number=wave_number
+            spectra=spectra,
+            masked_spectra=masked_spectra,
+            wave_number=wave_number,
+            mask=mask,
         )
