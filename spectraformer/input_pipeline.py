@@ -116,7 +116,7 @@ def batch_sampler(
     wave_number = jnp.expand_dims(
         jnp.asarray(filtered_dataset.wave_number.values), axis=-1
     )
-    mask = jnp.expand_dims(mask, axis=-1)
+    mask = jnp.asarray(mask)
     if norm_wv:
         wave_number = (wave_number - 2000) / 800  # Pretty arbitrary, but works.
 

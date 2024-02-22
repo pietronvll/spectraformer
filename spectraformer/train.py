@@ -12,8 +12,8 @@ def train_step(state: TrainState, batch, dropout_key):
             {"params": params},
             batch["masked_spectra"],
             batch["wave_number"],
-            attn_mask,
-            training=False,  # Disable dropout for the moment
+            batch["mask"],
+            training=True,  # Disable dropout for the moment
             rngs={"dropout": dropout_train_key},
         )
         loss = optax.squared_error(pred_spectra, batch["spectra"]).mean()
