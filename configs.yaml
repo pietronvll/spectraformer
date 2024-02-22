@@ -1,9 +1,9 @@
-tag: "spectraformer:mid"
-embedding_dim: 64
+tag: "spectraformer:base"
+embedding_dim: 32
 num_heads: 4
-num_layers: 12
+num_layers: 4
 learning_rate: 1e-4
-num_epochs: 500
+num_epochs: 1000
 batch_size: 19
 root_rng_seed: 0
 train_dataset: "SiC_19x10x3"

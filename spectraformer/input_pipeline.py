@@ -58,10 +58,17 @@ def mask_dataset(
             (dataset.wave_number > mask_window[0])
             & (dataset.wave_number < mask_window[1])  # True INSIDE the window
         )
-
-    mask = sum(masks)
-    mask = ~mask
-    return dataset.where(mask, default_value), mask.values
+    if len(masks) == 0:
+        return dataset, np.ones_like(dataset.wave_number.values)
+    elif len(masks) == 1:
+        mask = ~(masks[0])
+        return dataset.where(mask, default_value), mask.values
+    else:
+        mask = masks[0]
+        for i in range(len(masks) - 1):
+            mask = mask | masks[i + 1]
+        mask = ~(mask)
+        return dataset.where(mask, default_value), mask.values
 
 
 # Batch object implemented as a TypedDict

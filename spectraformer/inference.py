@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from input_pipeline import Batch
 from pnstyler import styler
+
+from spectraformer.input_pipeline import Batch
 
 
 def predict(apply_fn, variables, batch: Batch, *apply_fn_args):
