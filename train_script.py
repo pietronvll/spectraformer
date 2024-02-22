@@ -5,12 +5,15 @@ import ml_confs
 import optax
 import orbax.checkpoint as ocp
 import xarray as xr
+from absl import logging
 from clu import metric_writers, periodic_actions
 from flax.training.train_state import TrainState
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
 from spectraformer.train import train_step
+
+logging.set_verbosity(logging.INFO)
 
 maindir = Path(__file__).parent.resolve()
 logdir = "gs://spectraformer/logs/"
@@ -75,7 +78,7 @@ if __name__ == "__main__":
 
     writer = metric_writers.create_default_writer(logdir + configs.tag)
     report_hook = periodic_actions.ReportProgress(
-        writer=writer, every_steps=1, every_secs=None
+        writer=writer, every_steps=None, every_secs=30
     )
 
     for epoch in range(configs.num_epochs):
@@ -84,7 +87,8 @@ if __name__ == "__main__":
         )
         for batch in data_loader:
             state, loss = train_step(state, batch, dropout_key)
-            report_hook(state.step)
-        writer.write_scalars(state.step, {"train/loss": loss.item()})
-    ckpt_manager.save(state.step, args=ocp.args.StandardSave(state))
+        if epoch % configs.log_every_epochs == 0:
+            report_hook(state.step.item())
+            writer.write_scalars(state.step, {"train/loss": loss.item()})
+            ckpt_manager.save(state.step, state)
     ckpt_manager.wait_until_finished()
