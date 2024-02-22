@@ -47,12 +47,20 @@ def preprocess_dataset(
 
 
 def mask_dataset(
-    dataset: xr.DataArray, mask_window: tuple = (1525, 1650), default_value=-1
+    dataset: xr.DataArray,
+    mask_windows: list,
+    default_value=-1,
 ) -> xr.DataArray:
     """Mask a dataset by setting the values of a given window to -1."""
-    mask = ~(
-        (dataset.wave_number < mask_window[1]) & (dataset.wave_number > mask_window[0])
-    )
+    masks = []
+    for mask_window in mask_windows:
+        masks.append(
+            (dataset.wave_number > mask_window[0])
+            & (dataset.wave_number < mask_window[1])  # True INSIDE the window
+        )
+
+    mask = sum(masks)
+    mask = ~mask
     return dataset.where(mask, default_value), mask.values
 
 
@@ -65,7 +73,7 @@ class Batch(TypedDict):
 
 def batch_sampler(
     filtered_dataset: xr.DataArray,
-    mask_window: tuple = (1525, 1650),
+    mask_windows: list = [(1525, 1650), (2500, 2900)],
     batch_size: Optional[int] = None,
     shuffle: bool = True,
     norm_wv: bool = True,
@@ -88,7 +96,7 @@ def batch_sampler(
 
     # Reorder dimensions of datasets
     masked_dataset, mask = mask_dataset(
-        filtered_dataset, mask_window=mask_window, default_value=default_mask_value
+        filtered_dataset, mask_windows=mask_windows, default_value=default_mask_value
     )
     filtered_dataset = filtered_dataset.transpose("spectra", "wave_number")
     masked_dataset = masked_dataset.transpose("spectra", "wave_number")

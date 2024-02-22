@@ -71,7 +71,9 @@ if __name__ == "__main__":
     )
 
     if len(ckpt_manager.all_steps()) > 0:
-        res = ckpt_manager.restore(ckpt_manager.latest_step())
+        state = ckpt_manager.restore(
+            ckpt_manager.latest_step(), args=ocp.args.StandardRestore(state)
+        )
         print(f"Resuming training from step {state.step}.")
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scracth.")
