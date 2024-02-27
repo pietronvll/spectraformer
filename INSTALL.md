@@ -40,3 +40,14 @@ pip install --upgrade "jax[cuda12_pip]==0.4.21" -f https://storage.googleapis.co
 ```bash
 pip install -r requirements.txt
 ```
+
+## Step 3 [Optional]: CA-Certificates for GCS
+
+On Linux and BSD, if TensorStore is built with a bundled version of libcurl, as is the default, it expects to find the system certificate authority (CA) bundle in PEM format at `/etc/ssl/certs/ca-certificates.crt`, which is the location used by most Linux distributions. If the system CA bundle is available at that path, no additional configuration is necessary.
+
+If the system CA bundle is not available at that path, you can specify an alternative certificate bundle path or certificate directory at runtime with the `TENSORSTORE_CA_BUNDLE` or `TENSORSTORE_CA_PATH` environment variables. 
+
+For example, one can add to `.bashrc` the line
+```bash
+export TENSORSTORE_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt
+```
