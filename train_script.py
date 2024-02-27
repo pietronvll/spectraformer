@@ -6,8 +6,8 @@ import optax
 import orbax.checkpoint as ocp
 import xarray as xr
 from absl import logging
-from clu import metric_writers, periodic_actions
 from flax.training.train_state import TrainState
+from tensorboardX import SummaryWriter
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
@@ -78,10 +78,7 @@ if __name__ == "__main__":
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scracth.")
 
-    writer = metric_writers.create_default_writer(logdir + configs.tag)
-    report_hook = periodic_actions.ReportProgress(
-        writer=writer, every_steps=None, every_secs=30
-    )
+    writer = SummaryWriter(logdir + configs.tag)
 
     for epoch in range(configs.num_epochs):
         data_loader = batch_sampler(
@@ -90,7 +87,6 @@ if __name__ == "__main__":
         for batch in data_loader:
             state, loss = train_step(state, batch, dropout_key)
         if epoch % configs.log_every_epochs == 0:
-            report_hook(state.step.item())
-            writer.write_scalars(state.step, {"train/loss": loss.item()})
+            writer.add_scalar("train/loss", loss.item(), state.step)
             ckpt_manager.save(state.step, state)
     ckpt_manager.wait_until_finished()

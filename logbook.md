@@ -1,3 +1,24 @@
+#### Feb 27, 2024
+With a MVP in place, move to the training of more refined models.
+
+**General.**
+1. Read the paper [Contribution of the buffer layer to the Raman
+spectrum of epitaxial graphene on SiC(0001)](https://iopscience.iop.org/article/10.1088/1367-2630/15/4/043031/pdf)
+3. Solve the issue with logging on Franklin.
+4. Containerize the package for fast deployment.
+
+**Training & Code**
+1. Batch size finder.
+2. Early stopping - [Flax Docs](https://flax.readthedocs.io/en/latest/api_reference/flax.training.html#early-stopping).
+3. Add random mask upon training.
+4. Streamlit dashboard.
+
+**Next generation of models should be**
+1. Scale independent, or learnable scale params.
+2. Should perform denoising
+
+
+
 #### Feb 21, 2024
 Worked quite a bit on the spectraformer model. Having in place a MVP. Some obvious things to do:
 1. Ad an asymmetric attention matrix masking any _inputs_ from the masked region (but not outputs)
