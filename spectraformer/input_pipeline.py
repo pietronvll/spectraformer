@@ -80,7 +80,7 @@ class Batch(TypedDict):
 
 def batch_sampler(
     filtered_dataset: xr.DataArray,
-    mask_windows: list = [(1525, 1650), (2500, 2900)],
+    mask_windows: list,
     batch_size: Optional[int] = None,
     shuffle: bool = True,
     norm_wv: bool = True,

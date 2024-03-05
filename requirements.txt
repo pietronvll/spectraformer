@@ -8,3 +8,4 @@ tensorboardX
 google-cloud-storage
 gcsfs
 matplotlib
+gpustat

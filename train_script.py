@@ -5,7 +5,6 @@ import ml_confs
 import optax
 import orbax.checkpoint as ocp
 import xarray as xr
-from absl import logging
 from etils import epath
 from flax.training.common_utils import stack_forest
 from flax.training.early_stopping import EarlyStopping
@@ -15,8 +14,6 @@ from tensorboardX import SummaryWriter
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch
-
-logging.set_verbosity(logging.INFO)
 
 maindir = Path(__file__).parent.resolve()
 logdir = "gs://spectraformer/logs/"
@@ -32,7 +29,11 @@ if __name__ == "__main__":
         xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
     )
 
-    dummy_example = next(batch_sampler(train_ds, batch_size=1))
+    mask_windows = list(
+        zip(configs.masked_interval_starts, configs.masked_interval_ends)
+    )
+
+    dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
     print(f"Train dataset of length {len(train_ds.spectra)} with leaves of shape:")
     for k, v in dummy_example.items():
         print(f"  {k} -> {v.shape}")

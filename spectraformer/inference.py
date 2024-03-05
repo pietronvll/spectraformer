@@ -6,7 +6,11 @@ from spectraformer.input_pipeline import Batch
 
 def predict(apply_fn, variables, batch: Batch, *apply_fn_args):
     pred = apply_fn(
-        variables, batch["masked_spectra"], batch["wave_number"], *apply_fn_args
+        variables,
+        batch["masked_spectra"],
+        batch["wave_number"],
+        *apply_fn_args,
+        training=False,
     )
     res = {k: np.squeeze(v) for k, v in batch.items()}
     res["predicted_spectra"] = np.squeeze(pred)
@@ -37,4 +41,6 @@ def plot_results(predictions):
             f"Warning: found {data.shape[1]} predicted spectra in the provided dictionary. The plot might be crowded."
         )
     ax.legend(frameon=False)
+    ax.margins(x=0)
+    ax.set_ylim(-0.1, 1.05)
     return fig, ax
