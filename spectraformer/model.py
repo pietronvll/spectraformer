@@ -98,4 +98,5 @@ class SpectraFormer(nn.Module):
             )(x, attn_mask, training=training)
         x = nn.LayerNorm()(x)
         x = nn.Dense(1)(x)
+        x = jnp.exp(x)
         return x

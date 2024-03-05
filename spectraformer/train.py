@@ -1,6 +1,10 @@
 import jax
+import jax.numpy as jnp
 import optax
+from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
+
+from spectraformer.input_pipeline import Batch, batch_sampler
 
 
 @jax.jit
@@ -13,13 +17,37 @@ def train_step(state: TrainState, batch, dropout_key):
             batch["masked_spectra"],
             batch["wave_number"],
             batch["mask"],
-            training=True,  # Disable dropout for the moment
+            training=True,
             rngs={"dropout": dropout_train_key},
         )
-        loss = optax.squared_error(pred_spectra, batch["spectra"]).mean()
+        # Poisson Loss
+        loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
+        # loss = optax.squared_error(pred_spectra, batch["spectra"]).mean()
         return loss
 
     grad_fn = jax.value_and_grad(loss_fn)
     loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
-    return state, loss
+    train_metrics = {"loss": loss}
+    return state, train_metrics
+
+
+def train_epoch(
+    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager
+):
+    data_loader = batch_sampler(
+        train_ds, batch_size=configs.batch_size, rng_seed=epoch, shuffle=True
+    )
+    metrics = []
+    for batch in data_loader:
+        state, batch_metrics = train_step(state, batch, rng_streams["dropout"])
+        metrics.append(batch_metrics)
+
+    metrics = stack_forest(metrics)
+    avg_metrics = jax.tree_map(jnp.mean, metrics)  # Log the average error of the epoch
+
+    print(f"Epoch {epoch + 1} -- Loss {avg_metrics['loss'].item():.3e}")
+    if epoch % configs.log_every_epochs == 0:
+        metric_writer.add_scalar("train/loss", avg_metrics["loss"].item(), state.step)
+        ckpt_manager.save(state.step, state)
+    return state, metrics

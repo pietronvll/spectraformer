@@ -6,12 +6,14 @@ import optax
 import orbax.checkpoint as ocp
 import xarray as xr
 from absl import logging
+from flax.training.common_utils import stack_forest
+from flax.training.early_stopping import EarlyStopping
 from flax.training.train_state import TrainState
 from tensorboardX import SummaryWriter
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
-from spectraformer.train import train_step
+from spectraformer.train import train_epoch
 
 logging.set_verbosity(logging.INFO)
 
@@ -78,15 +80,19 @@ if __name__ == "__main__":
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scracth.")
 
-    writer = SummaryWriter(logdir + configs.tag)
-
+    metric_writer = SummaryWriter(logdir + configs.tag)
+    rng_streams = {"dropout": dropout_key}
+    # early_stop = EarlyStopping(min_delta=1e-3, patience=2)
+    metrics = []
     for epoch in range(configs.num_epochs):
-        data_loader = batch_sampler(
-            train_ds, batch_size=configs.batch_size, rng_seed=epoch, shuffle=True
+        state, epoch_metrics = train_epoch(
+            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager
         )
-        for batch in data_loader:
-            state, loss = train_step(state, batch, dropout_key)
-        if epoch % configs.log_every_epochs == 0:
-            writer.add_scalar("train/loss", loss.item(), state.step)
-            ckpt_manager.save(state.step, state)
+        metrics.append(epoch_metrics)
+        # early_stop = early_stop.update(metrics["loss"])
+        # if early_stop.should_stop:
+        #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
+        #     break
+    metrics = stack_forest(metrics)  # Need to save them to the writer
     ckpt_manager.wait_until_finished()
+    metric_writer.close()

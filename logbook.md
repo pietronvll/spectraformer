@@ -1,3 +1,12 @@
+#### Mar 5, 2024
+Back to the project. Last time I have solved the technical issues on trainin on Franklin. Now, focus on code: 
+1. Batchsize finder and HP opt.
+2. Early Stopping.
+
+**Architecture**
+1. Find a way to make it scale invariant
+2. Perform denoising.
+
 #### Feb 27, 2024
 With a MVP in place, move to the training of more refined models.
 
