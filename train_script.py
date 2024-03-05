@@ -6,6 +6,7 @@ import optax
 import orbax.checkpoint as ocp
 import xarray as xr
 from absl import logging
+from etils import epath
 from flax.training.common_utils import stack_forest
 from flax.training.early_stopping import EarlyStopping
 from flax.training.train_state import TrainState
@@ -65,12 +66,17 @@ if __name__ == "__main__":
 
     # # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=5)
+    if not epath.Path(ckptdir + configs.tag).exists():
+        epath.Path(ckptdir + configs.tag + "/.tmp").touch()
     ckpt_manager = ocp.CheckpointManager(
         ckptdir + configs.tag,
         options=ckpt_options,
         item_handlers=ocp.StandardCheckpointHandler(),
         metadata=configs.to_dict(),
     )
+    # After initialization remove the dummy file
+    if epath.Path(ckptdir + configs.tag + "/.tmp").exists():
+        epath.Path(ckptdir + configs.tag + "/.tmp").rmtree()
 
     if len(ckpt_manager.all_steps()) > 0:
         state = ckpt_manager.restore(

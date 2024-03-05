@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pnstyler import styler
 
 from spectraformer.input_pipeline import Batch
 
@@ -16,7 +15,7 @@ def predict(apply_fn, variables, batch: Batch, *apply_fn_args):
 
 
 def plot_results(predictions):
-    fig, ax = plt.subplots(figsize=styler.figsize())
+    fig, ax = plt.subplots()
     wave_number = predictions["wave_number"]
     # Check if wave_number has been normalized
     if np.max(np.abs(wave_number)) < 10:

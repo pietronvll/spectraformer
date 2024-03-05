@@ -7,3 +7,4 @@ ipykernel
 tensorboardX
 google-cloud-storage
 gcsfs
+matplotlib
