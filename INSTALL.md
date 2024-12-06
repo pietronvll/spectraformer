@@ -2,7 +2,7 @@
 Spectraformer has been developed and tested on an environment with `python 3.11`.
 
 ## Prerequisites:
-1. A working installation of Anaconda or Mamba
+A working installation of Anaconda or Mamba, on Franklin [follow this guide](https://wiki-franklin.iit.it/user_guide/user_installation.html).
 
 ## Step 0: Initialize Conda Environment.
 Create a new environment with Python 3.11
@@ -22,7 +22,7 @@ The first step to run Spectraformer is to install JAX.
 
 ### CPU-Only
 ```bash
-pip install --upgrade "jax[cpu]==0.4.21"
+pip install --upgrade "jax[cpu]"
 ```
 
 ### GPU
@@ -34,7 +34,7 @@ Quoting from [JAX's installation guide](https://jax.readthedocs.io/en/latest/ins
 Once drivers are installed run 
 
 ```bash
-pip install --upgrade "jax[cuda12_pip]==0.4.21" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 ## Step 2: Install the additional requirements
 ```bash

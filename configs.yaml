@@ -1,7 +1,7 @@
-tag: "spectraformer:base"
-embedding_dim: 128
-num_heads: 16
-num_layers: 8
+tag: "spectraformer:min"
+embedding_dim: 64
+num_heads: 8
+num_layers: 2
 learning_rate: 1e-4
 num_epochs: 100
 batch_size: 19

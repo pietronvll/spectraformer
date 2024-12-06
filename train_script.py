@@ -7,7 +7,6 @@ import orbax.checkpoint as ocp
 import xarray as xr
 from etils import epath
 from flax.training.common_utils import stack_forest
-from flax.training.early_stopping import EarlyStopping
 from flax.training.train_state import TrainState
 from tensorboardX import SummaryWriter
 
@@ -16,8 +15,13 @@ from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch
 
 maindir = Path(__file__).parent.resolve()
-logdir = "gs://spectraformer/logs/"
-ckptdir = "gs://spectraformer/checkpoints/"
+# logdir = "gs://spectraformer/logs/"
+# ckptdir = "gs://spectraformer/checkpoints/"
+logdir = maindir / "logs"
+ckptdir = maindir / "checkpoints"
+# Check if logdir and ckptdir exist, if not create them
+logdir.mkdir(parents=True, exist_ok=True)
+ckptdir.mkdir(parents=True, exist_ok=True)
 datadir = maindir / "data"
 
 if __name__ == "__main__":
@@ -67,17 +71,18 @@ if __name__ == "__main__":
 
     # # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=5)
-    if not epath.Path(ckptdir + configs.tag).exists():
-        epath.Path(ckptdir + configs.tag + "/.tmp").touch()
+    if not epath.Path(ckptdir / configs.tag).exists():
+        epath.Path(ckptdir / configs.tag).mkdir()
+        epath.Path(ckptdir / configs.tag / ".tmp").touch()
     ckpt_manager = ocp.CheckpointManager(
-        ckptdir + configs.tag,
+        ckptdir / configs.tag,
         options=ckpt_options,
         item_handlers=ocp.StandardCheckpointHandler(),
         metadata=configs.to_dict(),
     )
     # After initialization remove the dummy file
-    if epath.Path(ckptdir + configs.tag + "/.tmp").exists():
-        epath.Path(ckptdir + configs.tag + "/.tmp").rmtree()
+    if epath.Path(ckptdir / configs.tag / ".tmp").exists():
+        epath.Path(ckptdir / configs.tag / ".tmp").rmtree()
 
     if len(ckpt_manager.all_steps()) > 0:
         state = ckpt_manager.restore(
@@ -87,7 +92,7 @@ if __name__ == "__main__":
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scracth.")
 
-    metric_writer = SummaryWriter(logdir + configs.tag)
+    metric_writer = SummaryWriter(logdir / configs.tag)
     rng_streams = {"dropout": dropout_key}
     # early_stop = EarlyStopping(min_delta=1e-3, patience=2)
     metrics = []

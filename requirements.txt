@@ -1,5 +1,5 @@
-flax==0.7.5
-chex==0.1.7
+flax
+chex
 ml_confs==0.0.4
 streamlit==1.31.1
 xarray[io]==2023.11.0
