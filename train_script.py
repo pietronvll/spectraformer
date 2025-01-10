@@ -15,17 +15,27 @@ from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch
 
 maindir = Path(__file__).parent.resolve()
-# logdir = "gs://spectraformer/logs/"
-# ckptdir = "gs://spectraformer/checkpoints/"
+
 logdir = maindir / "logs"
 ckptdir = maindir / "checkpoints"
 # Check if logdir and ckptdir exist, if not create them
 logdir.mkdir(parents=True, exist_ok=True)
 ckptdir.mkdir(parents=True, exist_ok=True)
+
 datadir = maindir / "data"
 
+model_tag = "min"  # Can be ["min","base","large"] -      # CHOOSE ONE FROM THE LIST (.yaml file should exist)
+                                                            # tag also can be found for already trained models in checkpoints folder
+
+configsdir = maindir / "configs"
+configsdir.mkdir(parents=True, exist_ok=True)
+config_file_name = f"configs_{model_tag}.yaml"
+config_file_path = configsdir / config_file_name
+
+
 if __name__ == "__main__":
-    configs = ml_confs.from_file(maindir / "configs.yaml")
+    
+    configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
 
     # Data Loading

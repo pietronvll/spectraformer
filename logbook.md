@@ -1,3 +1,16 @@
+#### Jan 10, 2025
+I need to separate data into train and validation datasets to visualize overfitting. Just train/loss is not enough to understand the model behaviour.
+
+#### Jan 9, 2025
+Last ime I've added new raw data and tried to train some model.
+Now config file doesn't require to be edited for playing with different models. Every model config file is stored in "configs" folder.
+
+Question: how to choose model parameters.
+
+Think about:
+1. Evaluating models using TensorBoard (re-train models with modified code to write metrics?). NOTE: to use tensorboard, type in terminal "tensorboard --logdir=logs"
+2. Show the amount of parameters on the dashboard maybe?
+
 #### Mar 5, 2024
 Back to the project. Last time I have solved the technical issues on trainin on Franklin. Now, focus on code: 
 1. Batchsize finder and HP opt.
