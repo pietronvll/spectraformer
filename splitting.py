@@ -1,3 +1,5 @@
+# This script is to check if the splitting works
+
 import numpy as np
 import xarray as xr
 
@@ -15,8 +17,8 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min"  # Can be ["min","base","large"] -      # CHOOSE ONE FROM THE LIST (.yaml file should exist)
-                                                            # tag also can be found for already trained models in checkpoints folder
+model_tag = "min"  # CHOOSE ONE (.yaml file should exist)
+                   # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"
 configsdir.mkdir(parents=True, exist_ok=True)
