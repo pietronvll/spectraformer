@@ -13,7 +13,9 @@ from tensorboardX import SummaryWriter
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
-from spectraformer.train import train_epoch
+from spectraformer.train import train_epoch, validation_epoch
+
+jax.config.update("jax_debug_nans", True)
 
 maindir = Path(__file__).parent.resolve()
 
@@ -25,8 +27,8 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "base3"  # CHOOSE ONE (.yaml file should exist)
-                     # tag also can be found for already trained models in checkpoints folder
+model_tag = "min8"  # CHOOSE ONE (.yaml file should exist)
+                    # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"
 configsdir.mkdir(parents=True, exist_ok=True)
@@ -46,40 +48,36 @@ if __name__ == "__main__":
     # Dataset loading and separation into train/val section
     ####################################################################################################
 
-    # Full dataset for training
-    train_ds = preprocess_dataset(
-        xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
-    )
-
-
-
-    # Part of dataset for training, part for evaluation
-
-    # # Load the full dataset
-    # full_ds = preprocess_dataset(
+    # # Full dataset for training
+    # train_ds = preprocess_dataset(
     #     xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
     # )
 
-    # # Define the split fraction and random seed
-    # split_fraction = 0.8  # 80% for training, 20% for validation
-    # rng_seed = configs.root_rng_seed  # Use the seed from the config for reproducibility
 
-    # # Shuffle indices
-    # np.random.seed(rng_seed)
-    # indices = np.arange(len(full_ds))
-    # np.random.shuffle(indices)
 
-    # # Split indices
-    # split_index = int(len(indices) * split_fraction)
-    # train_indices = indices[:split_index]
-    # val_indices = indices[split_index:]
+    # # Part of dataset for training, part for evaluation
+    # Load the full dataset
+    full_ds = preprocess_dataset(
+        xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
+    )
+    # Define the split fraction and random seed
+    split_fraction = 0.8  # 80% for training, 20% for validation
+    rng_seed = configs.root_rng_seed  # Use the seed from the config for reproducibility
+    # Shuffle indices
+    np.random.seed(rng_seed)
+    indices = np.arange(len(full_ds))
+    np.random.shuffle(indices)
+    # Split indices
+    split_index = int(len(indices) * split_fraction)
+    train_indices = indices[:split_index]
+    val_indices = indices[split_index:]
+    # Split dataset
+    train_ds = full_ds[train_indices]
+    val_ds = full_ds[val_indices]
+    print(f"Training samples: {len(train_ds)}, Validation samples: {len(val_ds)}, Total: {len(full_ds)}={len(train_ds)+len(val_ds)}")
 
-    # # Split dataset
-    # train_ds = full_ds[train_indices]
-    # val_ds = full_ds[val_indices]
-
-    # print(f"Training samples: {len(train_ds)}, Validation samples: {len(val_ds)}, Total: {len(full_ds)}")
-
+    # ####################################################################################################
+    # 
     # ####################################################################################################
 
 
@@ -146,21 +144,33 @@ if __name__ == "__main__":
     metric_writer = SummaryWriter(logdir / configs.tag)
     rng_streams = {"dropout": dropout_key}
     # early_stop = EarlyStopping(min_delta=1e-3, patience=2)
-    metrics = []
-    
+    train_metrics = []
+    val_metrics = []
     
     ####################################################################################################
     # Training & metrics calculation section
     ####################################################################################################
     for epoch in range(configs.num_epochs):
-        state, epoch_metrics = train_epoch(
+        # Training
+        state, epoch_train_metrics = train_epoch(
             state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager
         )
-        metrics.append(epoch_metrics)
+        train_metrics.append(epoch_train_metrics)
+        
+        # Validation
+        state, epoch_val_metrics = validation_epoch(
+            state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager
+        )
+        val_metrics.append(epoch_val_metrics)
+        
+        # # Early stop (?)
         # early_stop = early_stop.update(metrics["loss"])
         # if early_stop.should_stop:
         #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
         #     break
-    metrics = stack_forest(metrics)  # Need to save them to the writer
+    # Need to save metrics to the writer
+    train_metrics = stack_forest(train_metrics)
+    val_metrics = stack_forest(val_metrics)
+    
     ckpt_manager.wait_until_finished()
     metric_writer.close()

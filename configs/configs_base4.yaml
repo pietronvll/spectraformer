@@ -1,9 +1,9 @@
-tag: "spectraformer:min_val"
-embedding_dim: 64
-num_heads: 8
-num_layers: 2
+tag: "spectraformer:base4"
+embedding_dim: 256
+num_heads: 16
+num_layers: 8
 learning_rate: 1e-4
-num_epochs: 100
+num_epochs: 500
 batch_size: 19
 dropout_rate: 0.5
 root_rng_seed: 0

@@ -1,3 +1,71 @@
+#### Jan 21, 2025
+Added gradient metrics to be written during training. Let's see what happens with a usual conditions without trics to make positive values before log calculation (min6).
+
+Also added some checks for NaN/Inf values.
+While training as usual without tricks with "positivization" it appears that as expected before first epoch prediction is NaN/Inf, gradients are NaN/Inf (since they are just initialized). While for all training it is basically ok. 
+After reaching the condition for meeting NaN in training process the program shuts down as intended.
+But if I try to re-run the train_script it gives me the sequence of:
+This behavior occures when there is no decorator.
+```python
+    No checkpoint found with tag spectraformer:min8, training from scratch.
+    NaN detected in pred_spectra for training step
+    Inf detected in pred_spectra for training step
+    NaN detected in grads
+    Inf detected in grads
+    NaN detected in pred_spectra for training step
+    Inf detected in pred_spectra for training step
+    NaN detected in grads
+    Inf detected in grads
+    ...
+```
+So, like it is not exiting the training step? And it is not logging anything else as intended like #epoch, loss etc. 
+
+NaN input -> log(NaN)=NaN, grad=NaN -> ...
+
+With decorator:
+```python
+    No checkpoint found with tag spectraformer:min8, training from scratch.
+    NaN detected in pred_spectra for training step
+    Inf detected in pred_spectra for training step
+    NaN detected in grads
+    Inf detected in grads
+    Epoch 1 -- Loss 5.690e-01
+    NaN detected in pred_spectra for validation step
+    Inf detected in pred_spectra for validation step
+    Validation -- Epoch 1 -- Loss 2.814e-01 -- Cos_sim 3.477e-01 -- MSE 2.408e-02
+    Epoch 2 -- Loss 2.488e-01
+    Validation -- Epoch 2 -- Loss 2.548e-01 -- Cos_sim 3.477e-01 -- MSE 1.898e-02
+    ...
+```
+
+Maybe the solution could be to **CHANGE LOSS FUNCTION**?
+Could be: 
+1. log( abs(predicted_spectra) ) 
+2. or if we want to keep the sign: log( abs(predicted_spectra) )*sign(predicted_spectra)?
+3. Or Fenchel Young loss? https://arxiv.org/pdf/1901.02324
+4. optax.losses.softmax_cross_entropy
+
+#### Jan 20, 2025
+Working on validation metrics and NaN issue.
+
+NaN issue is due to the decorator "@jax.jit". Without it the model trains as usual but much slower. Probably it's because of log function calculation. Trying to solve the issue to still use the decorator optimization.
+
+Metrics so far:
+1. Poisson loss - it is convenient to use it since our data is Poisson-noised.
+2. Mean square error.
+3. Cosine similarity.
+
+For later: what is early stop and why does it commented...
+
+Update. Successfully implemented validation metrics. But the model at step 6630 got stuck in train loss and val loss
+Also fixed an issue of NaN appearing. Indeed, it is solved after I put a positive threshold before log calculation.
+
+Now problem is that the loss saturates (min3 and min4). Let's try to increase lr by 1 order of magnitude.
+
+Also cosine similarity seems to be useless metric since it is constant. At least for the same model configuration.
+
+Ok maybe this "stucking" is not due to lr. But rather due to my clipping of values before log function.
+
 #### Jan 14, 2025
 Code for dataset splitting is integrated into train script. Now I need to validate training.
 
