@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import jax
+print("JAX devices: ", jax.devices())
 import ml_confs
 import optax
 import orbax.checkpoint as ocp

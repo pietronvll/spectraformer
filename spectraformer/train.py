@@ -140,8 +140,14 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
         # Poisson Loss
         loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
         return loss
+    
+    def val_gamma_loss_fn(params):
+        # Gamma loss
+        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
+        return loss
 
-    loss = loss_fn(state.params)                                                        # Poisson loss - suitable for our particular task
+    loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
+    # loss = loss_fn(state.params)                                                        # Poisson loss - suitable for our particular task
     cos_sim = optax.losses.cosine_similarity(pred_spectra, batch["spectra"]).mean()     # Cosine similarity - measure of how close vectors are in terms of a direction (1 - same direction, 0 - orthogonal, -1 - opposite)
     mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
     

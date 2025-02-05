@@ -45,6 +45,49 @@ def preprocess_dataset(
         print(f"Dropped {num_spectra - len(filtered_dataset.spectra)} spectra")
     return filtered_dataset
 
+def preprocess_dataset_raw(
+    dataset: xr.DataArray,
+    bg_removal_window: tuple = (2200, 2500),
+    sup_norm_threshold: float = 0.15,
+    verbose: bool = False,
+    raw: bool = False,
+) -> xr.DataArray:
+    """Preprocess xarray datasets by subtracting the background, normalizing to the max and removing outliers, i.e. spectra with cosmic rays or other artifacts.
+
+    Args:
+        dataset (xr.DataArray): xarray dataset with the spectra, as created by the preprocessing pipeline.
+        bg_removal_window (tuple, optional): Wavelength window to use as reference to remove the background. Defaults to (2200, 2500) cm^-1.
+        sup_norm_threshold (float, optional): Threshold to discard outliers; a spectra is considered an outlier whence the sup-norm distance with respect to the median is greater than the threshold. Defaults to 0.15.
+        verbose (bool, optional): Defaults to False.
+
+    Returns:
+        xr.DataArray: Processed dataset
+    """
+    # Background removal
+    bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
+    bg_value = bg_removal_window.median()
+    dataset = dataset - bg_value
+    
+    # Normalization to the max
+    if not raw:
+        dataset = dataset / dataset.max(dim="wave_number")
+        
+        # Outlier removal
+        spatial_dims = dataset.dims[:-1]
+        num_spectra = np.prod([len(dataset[dim]) for dim in spatial_dims]).item()
+        median_counts = dataset.median(dim=spatial_dims)
+        sup_norm_deviations = (abs(dataset - median_counts)).max(dim="wave_number")
+        dataset = dataset.where(sup_norm_deviations < sup_norm_threshold, drop=True)
+
+        if verbose:
+            print(f"Dropped {num_spectra - dataset.count().item()} spectra")
+
+    # Always stack spatial dimensions into a single "spectra" dimension
+    spatial_dims = dataset.dims[:-1]  # Everything except wave_number
+    dataset = dataset.stack(spectra=spatial_dims)
+    
+    return dataset
+
 
 def mask_dataset(
     dataset: xr.DataArray,
