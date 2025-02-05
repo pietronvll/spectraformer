@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import jax
+print("JAX devices: ", jax.devices())
 import ml_confs
 import optax
 import orbax.checkpoint as ocp
@@ -27,7 +28,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min8"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min9"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"

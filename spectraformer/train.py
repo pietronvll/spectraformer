@@ -49,7 +49,42 @@ def train_step(state: TrainState, batch: Batch, dropout_key):
         loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
         return loss
 
-    grad_fn = jax.value_and_grad(loss_fn)
+    def gamma_loss_fn(params):
+        # Obtain model predictions using the provided apply_fn.
+        pred_spectra = state.apply_fn(
+            {"params": params},
+            batch["masked_spectra"],
+            batch["wave_number"],
+            batch["mask"],
+            training=True,
+            rngs={"dropout": dropout_train_key},
+        )
+        
+        # Check for NaN or Inf in predictions using lax.
+        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+        
+        # Use lax.cond to print a warning if NaN or Inf is detected.
+        lax.cond(nan_check_pred_spectra, 
+                lambda _: print("NaN detected in pred_spectra for training step"), 
+                lambda _: None, 
+                operand=None)
+        lax.cond(inf_check_pred_spectra, 
+                lambda _: print("Inf detected in pred_spectra for training step"), 
+                lambda _: None, 
+                operand=None)
+        
+        # Clip predictions to avoid numerical issues (e.g. log(0))
+        pred_spectra = jnp.clip(pred_spectra, 1e-8, None)
+        
+        # Gamma loss: log(prediction) + (true / prediction)
+        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
+        
+        return loss
+
+    
+    # grad_fn = jax.value_and_grad(loss_fn)
+    grad_fn = jax.value_and_grad(gamma_loss_fn)
     loss, grads = grad_fn(state.params)
     
     
@@ -115,8 +150,14 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
         # Poisson Loss
         loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
         return loss
+    
+    def val_gamma_loss_fn(params):
+        # Gamma loss
+        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
+        return loss
 
-    loss = loss_fn(state.params)                                                        # Poisson loss - suitable for our particular task
+    loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
+    # loss = loss_fn(state.params)                                                        # Poisson loss - suitable for our particular task
     cos_sim = optax.losses.cosine_similarity(pred_spectra, batch["spectra"]).mean()     # Cosine similarity - measure of how close vectors are in terms of a direction (1 - same direction, 0 - orthogonal, -1 - opposite)
     mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
     
