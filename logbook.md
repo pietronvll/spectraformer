@@ -1,3 +1,19 @@
+#### Jan 23, 2025
+I've tried to implement data shifting from negative values to positive half-plane by the following code in input_pipeline.py in preprocess_dataset function:
+```python
+    # Shifting dataset to the positive half-plane
+    dataset = dataset - (1 + epsilon) * dataset.min(dim="wave_number")
+```
+This shift worked well to remove NaN issue since the log function now is well defined but the loss itself stucks at certain value no matter the epsilon (I've tried in range from 1e-1 to 1e-10).
+
+After the discussion with Antonio he suggested to shift the data after normalization from (0,1) to (1,2). 
+This is to set the logarithm to be positive or very slightly negative ( -0.3+1=0.7 -> log(0.7)=-0.15... ).
+Let's see how does it affects the loss function.
+UPD: it didn't work (adding +1 to the dataset).
+
+The only alternative ways I see are using MSE instead of Poisson or Fenchel-Young loss (which I have no idea how it works).
+Let's try to train with MSE.
+
 #### Jan 21, 2025
 Added gradient metrics to be written during training. Let's see what happens with a usual conditions without trics to make positive values before log calculation (min6).
 

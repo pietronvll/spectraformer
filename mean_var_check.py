@@ -60,6 +60,7 @@ if __name__ == "__main__":
     full_ds = preprocess_dataset(
         xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
     )
+    full_ds_unprocessed = xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
     # Define the split fraction and random seed
     split_fraction = 0.8  # 80% for training, 20% for validation
     rng_seed = configs.root_rng_seed  # Use the seed from the config for reproducibility
@@ -141,36 +142,6 @@ if __name__ == "__main__":
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scratch.")
 
-    metric_writer = SummaryWriter(logdir / configs.tag)
-    rng_streams = {"dropout": dropout_key}
-    # early_stop = EarlyStopping(min_delta=1e-3, patience=2)
-    train_metrics = []
-    val_metrics = []
+    print(f"Dataset (feeded to the model) properties -- Expected value (mean): {np.mean(full_ds):.3e}, Variance (SD): {np.var(full_ds):.3e}, Difference between two: {(np.mean(full_ds)-np.var(full_ds)):.3e}")
     
-    ####################################################################################################
-    # Training & metrics calculation section
-    ####################################################################################################
-    for epoch in range(configs.num_epochs):
-        # Training
-        state, epoch_train_metrics = train_epoch(
-            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager
-        )
-        train_metrics.append(epoch_train_metrics)
-        
-        # Validation
-        state, epoch_val_metrics = validation_epoch(
-            state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager
-        )
-        val_metrics.append(epoch_val_metrics)
-        
-        # # Early stop (?)
-        # early_stop = early_stop.update(metrics["loss"])
-        # if early_stop.should_stop:
-        #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
-        #     break
-    # Need to save metrics to the writer
-    train_metrics = stack_forest(train_metrics)
-    val_metrics = stack_forest(val_metrics)
-    
-    ckpt_manager.wait_until_finished()
-    metric_writer.close()
+    print(f"Unprocessed Dataset (raw) properties -- Expected value (mean): {np.mean(full_ds_unprocessed):.3e}, Variance (SD): {np.var(full_ds_unprocessed):.3e}, Difference between two: {(np.mean(full_ds_unprocessed)-np.var(full_ds_unprocessed)):.3e}")
