@@ -1,4 +1,4 @@
-tag: "spectraformer:min9"
+tag: "spectraformer:min10"
 embedding_dim: 64
 num_heads: 8
 num_layers: 2

@@ -49,8 +49,7 @@ def train_step(state: TrainState, batch: Batch, dropout_key):
         loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
         return loss
 
-    def gamma_loss_fn(params):
-        # Obtain model predictions using the provided apply_fn.
+    def mse_fn(params):
         pred_spectra = state.apply_fn(
             {"params": params},
             batch["masked_spectra"],
@@ -60,31 +59,22 @@ def train_step(state: TrainState, batch: Batch, dropout_key):
             rngs={"dropout": dropout_train_key},
         )
         
-        # Check for NaN or Inf in predictions using lax.
+        # NaN or Inf check using lax
         nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
         inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        
-        # Use lax.cond to print a warning if NaN or Inf is detected.
-        lax.cond(nan_check_pred_spectra, 
-                lambda _: print("NaN detected in pred_spectra for training step"), 
-                lambda _: None, 
-                operand=None)
-        lax.cond(inf_check_pred_spectra, 
-                lambda _: print("Inf detected in pred_spectra for training step"), 
-                lambda _: None, 
-                operand=None)
-        
-        # Clip predictions to avoid numerical issues (e.g. log(0))
-        pred_spectra = jnp.clip(pred_spectra, 1e-8, None)
-        
-        # Gamma loss: log(prediction) + (true / prediction)
-        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
-        
-        return loss
 
+        # Use lax.cond to act on the condition
+        lax.cond(nan_check_pred_spectra, lambda _: print("NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
+        lax.cond(inf_check_pred_spectra, lambda _: print("Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        
+        
+        # pred_spectra = jnp.clip(pred_spectra, min=1e-8) # To be sure that no neg value will be fed into log function. NaN value formation prevention
+
+        # MSE loss
+        mse_loss = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()
+        return mse_loss
     
-    # grad_fn = jax.value_and_grad(loss_fn)
-    grad_fn = jax.value_and_grad(gamma_loss_fn)
+    grad_fn = jax.value_and_grad(mse_fn)
     loss, grads = grad_fn(state.params)
     
     
