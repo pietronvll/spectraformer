@@ -24,7 +24,7 @@ def log_gpu_usage(gpustat_entry, step, writer):
 def train_step(state: TrainState, batch: Batch, dropout_key):
     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
 
-    def loss_fn(params):
+    def poisson_loss_fn(params):
         pred_spectra = state.apply_fn(
             {"params": params},
             batch["masked_spectra"],
@@ -37,19 +37,14 @@ def train_step(state: TrainState, batch: Batch, dropout_key):
         # NaN or Inf check using lax
         nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
         inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-
         # Use lax.cond to act on the condition
         lax.cond(nan_check_pred_spectra, lambda _: print("NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
         lax.cond(inf_check_pred_spectra, lambda _: print("Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
         
-        
-        # pred_spectra = jnp.clip(pred_spectra, min=1e-8) # To be sure that no neg value will be fed into log function. NaN value formation prevention
-
-        # Poisson Loss
         loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
         return loss
 
-    def mse_fn(params):
+    def gamma_loss_fn(params):
         pred_spectra = state.apply_fn(
             {"params": params},
             batch["masked_spectra"],
@@ -62,19 +57,37 @@ def train_step(state: TrainState, batch: Batch, dropout_key):
         # NaN or Inf check using lax
         nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
         inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-
         # Use lax.cond to act on the condition
         lax.cond(nan_check_pred_spectra, lambda _: print("NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
         lax.cond(inf_check_pred_spectra, lambda _: print("Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
         
+        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
         
-        # pred_spectra = jnp.clip(pred_spectra, min=1e-8) # To be sure that no neg value will be fed into log function. NaN value formation prevention
+        return loss
 
-        # MSE loss
-        mse_loss = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()
-        return mse_loss
+    def mse_loss_fn(params):
+            pred_spectra = state.apply_fn(
+                {"params": params},
+                batch["masked_spectra"],
+                batch["wave_number"],
+                batch["mask"],
+                training=True,
+                rngs={"dropout": dropout_train_key},
+            )
+            
+            # NaN or Inf check using lax
+            nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+            inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+
+            # Use lax.cond to act on the condition
+            lax.cond(nan_check_pred_spectra, lambda _: print("NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
+            lax.cond(inf_check_pred_spectra, lambda _: print("Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+            
+            
+            loss = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()
+            return loss
     
-    grad_fn = jax.value_and_grad(mse_fn)
+    grad_fn = jax.value_and_grad(gamma_loss_fn)
     loss, grads = grad_fn(state.params)
     
     
@@ -125,18 +138,15 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
                 training=False,
                 rngs={"dropout": dropout_val_key},
             )
+    
     # NaN or Inf check using lax
     nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
     inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-
     # Use lax.cond to act on the condition
     lax.cond(nan_check_pred_spectra, lambda _: print("NaN detected in pred_spectra for validation step"), lambda _: None, operand=None)
     lax.cond(inf_check_pred_spectra, lambda _: print("Inf detected in pred_spectra for validation step"), lambda _: None, operand=None)
-
-    # pred_spectra = jnp.clip(pred_spectra, min=1e-8) # To be sure that no neg value will be fed into log function. NaN value formation prevention
-
     
-    def loss_fn(params):
+    def val_poisson_loss_fn(params):
         # Poisson Loss
         loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
         return loss
@@ -146,13 +156,19 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
         loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
         return loss
 
-    loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
-    # loss = loss_fn(state.params)                                                        # Poisson loss - suitable for our particular task
+    def val_mse_loss_fn(params):
+        # MSE Loss
+        loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
+        return loss
+    
+    poisson_loss = val_poisson_loss_fn(state.params)
+    gamma_loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
     cos_sim = optax.losses.cosine_similarity(pred_spectra, batch["spectra"]).mean()     # Cosine similarity - measure of how close vectors are in terms of a direction (1 - same direction, 0 - orthogonal, -1 - opposite)
     mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
     
     val_metrics = {
-        "val_loss": loss, 
+        "val_poisson_loss": poisson_loss,
+        "val_gamma_loss": gamma_loss, 
         "cos_sim": cos_sim, 
         "MSE": mse
         }
@@ -212,9 +228,10 @@ def validation_epoch(
     metrics = stack_forest(metrics)
     avg_metrics = jax.tree_map(jnp.mean, metrics)  # Log the average error of the epoch
 
-    print(f"Validation -- Epoch {epoch + 1} -- Loss {avg_metrics['val_loss'].item():.3e} -- Cos_sim {avg_metrics['cos_sim'].item():.3e} -- MSE {avg_metrics['MSE'].item():.3e}")
+    print(f"Validation -- Epoch {epoch + 1} -- Poisson Loss {avg_metrics['val_poisson_loss'].item():.3e} -- Gamma Loss {avg_metrics['val_gamma_loss'].item():.3e} -- Cos_sim {avg_metrics['cos_sim'].item():.3e} -- MSE {avg_metrics['MSE'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
-        metric_writer.add_scalar("val/loss", avg_metrics["val_loss"].item(), state.step)
+        metric_writer.add_scalar("val/val_poisson_loss", avg_metrics["val_poisson_loss"].item(), state.step)
+        metric_writer.add_scalar("val/val_gamma_loss", avg_metrics["val_gamma_loss"].item(), state.step)
         metric_writer.add_scalar("val/cos_sim", avg_metrics["cos_sim"].item(), state.step)
         metric_writer.add_scalar("val/MSE", avg_metrics["MSE"].item(), state.step)
         for gpu_stats in gpustat.new_query():

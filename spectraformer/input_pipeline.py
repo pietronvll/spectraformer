@@ -10,7 +10,8 @@ def preprocess_dataset(
     dataset: xr.DataArray,
     bg_removal_window: tuple = (2200, 2500),
     sup_norm_threshold: float = 0.15,
-    verbose: bool = False,
+    verbose: bool = True,
+    option: str = 'proper_bg_maxnorm'
 ) -> xr.DataArray:
     """Preprocess xarray datasets by subtracting the background, normalizing to the max and removing outliers, i.e. spectra with cosmic rays or other artifacts.
 
@@ -19,31 +20,93 @@ def preprocess_dataset(
         bg_removal_window (tuple, optional): Wavelength window to use as reference to remove the background. Defaults to (2200, 2500) cm^-1.
         sup_norm_threshold (float, optional): Threshold to discard outliers; a spectra is considered an outlier whence the sup-norm distance with respect to the median is greater than the threshold. Defaults to 0.15.
         verbose (bool, optional): Defaults to False.
+        option (str, optional): How to preprocess dataset. ['bg_maxnorm', 'maxnorm', 'bg', 'proper_bg_maxnorm']
 
     Returns:
         xr.DataArray: Processed dataset
     """
     # Background removal
-    bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
-    bg_value = bg_removal_window.median()
-    dataset = dataset - bg_value
+    def bg_removal_fn(
+        dataset, 
+        bg_removal_window: tuple = (2200, 2500)
+        ):
+        bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
+        bg_value = bg_removal_window.median()
+        dataset_bg = dataset - bg_value
+        return dataset_bg
+    
+    def proper_bg_removal_fn(
+        dataset, 
+        bg_removal_window: tuple = (2200, 2500)
+        ):
+        bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
+        bg_values = bg_removal_window.median(dim="wave_number")
+        full_ds_bg_removed_per_spectra = dataset - bg_values
+        return full_ds_bg_removed_per_spectra
+    
+    # Negative value removal - by shifting everything towards 0
+    def neg_val_removal_fn(dataset):
+        dataset_positive = dataset - dataset.min(dim="wave_number")
+        return dataset_positive
+    
     # Normalization to the max
-    dataset = dataset / dataset.max(dim="wave_number")
+    def maxnorm_fn(dataset):
+        dataset_norm = dataset / dataset.max(dim="wave_number")
+        return dataset_norm
+    
+    # Shifting from zero by an arbitrary number
+    def shifting_fn(
+        dataset, 
+        shift: float = 0
+        ):
+        return dataset + shift
 
     # Outlier removal
-    spatial_dims = dataset.dims[:-1]
-    num_spectra = np.prod([len(dataset[dim]) for dim in spatial_dims]).item()
-    median_counts = dataset.median(dim=spatial_dims)
-    sup_norm_deviations = (abs(dataset - median_counts)).max(dim="wave_number")
-    filtered_dataset = dataset.where(
-        sup_norm_deviations < sup_norm_threshold, drop=True
-    )
-    filtered_dataset = filtered_dataset.stack(spectra=spatial_dims).dropna(
-        dim="spectra"
-    )
-    if verbose:
-        print(f"Dropped {num_spectra - len(filtered_dataset.spectra)} spectra")
-    return filtered_dataset
+    def outlier_removal_fn(
+        dataset,
+        sup_norm_threshold: float = 0.15
+        ):
+        spatial_dims = dataset.dims[:-1]
+        num_spectra = np.prod([len(dataset[dim]) for dim in spatial_dims]).item()
+        median_counts = dataset.median(dim=spatial_dims)
+        sup_norm_deviations = (abs(dataset - median_counts)).max(dim="wave_number")
+        filtered_dataset = dataset.where(
+            sup_norm_deviations < sup_norm_threshold, drop=True
+        )
+        filtered_dataset = filtered_dataset.stack(spectra=spatial_dims).dropna(
+            dim="spectra"
+        )
+        if verbose:
+            print(f"Dropped {num_spectra - len(filtered_dataset.spectra)} spectra")
+        return filtered_dataset
+    
+    match option:
+        case 'bg_maxnorm':
+            preprocessed_dataset = maxnorm_fn(
+                bg_removal_fn(
+                    dataset
+                    ) 
+                )
+        
+        case 'maxnorm':
+            preprocessed_dataset = maxnorm_fn(
+                dataset 
+                )
+        
+        case 'bg':
+            preprocessed_dataset = bg_removal_fn(
+                dataset
+                )
+    
+        case 'proper_bg_maxnorm':
+            preprocessed_dataset = maxnorm_fn(
+                proper_bg_removal_fn(
+                    dataset
+                    ) 
+                )
+    
+    
+    return preprocessed_dataset
 
 def preprocess_dataset_raw(
     dataset: xr.DataArray,
@@ -66,11 +129,13 @@ def preprocess_dataset_raw(
     # Background removal
     bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
     bg_value = bg_removal_window.median()
-    dataset = dataset - bg_value
+    # dataset = dataset - bg_value
+    dataset = dataset - dataset.min(dim='wave_number')
     
     # Normalization to the max
     if not raw:
         dataset = dataset / dataset.max(dim="wave_number")
+        
         
         # Outlier removal
         spatial_dims = dataset.dims[:-1]

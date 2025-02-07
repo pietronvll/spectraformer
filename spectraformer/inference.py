@@ -42,5 +42,5 @@ def plot_results(predictions):
         )
     ax.legend(frameon=False)
     ax.margins(x=0)
-    ax.set_ylim(-0.1, 1.05)
+    # ax.set_ylim(-0.1, 1.05)
     return fig, ax

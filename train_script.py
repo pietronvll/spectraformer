@@ -28,7 +28,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "base_MSE"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min20_gamma_0p1to1p1"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"

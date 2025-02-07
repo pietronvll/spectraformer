@@ -1,3 +1,22 @@
+#### Feb 05, 2025
+Trying to implement Gamma loss. Without any changes in input pipeline it is negative both train and val.
+With changes of a pipeline 
+
+```python
+    # Negative value removal
+    dataset = dataset - dataset.min(dim="wave_number")
+    # Normalization to the max - squeezing into range [ 0 ; 1 ]
+    dataset = dataset / dataset.max(dim="wave_number")
+    # Shifting from zero = range [ 1e-8 ; 1 + 1e-8 ]
+    dataset = dataset + 1e-8
+```
+
+it is still negative. I have a hint - because of $$
+log(0<x<1)<<0
+$$.
+I've tried to change sign in the formula, but it is still negative - but only the train (which was the one i changed...).
+
+
 #### Jan 23, 2025
 I've tried to implement data shifting from negative values to positive half-plane by the following code in input_pipeline.py in preprocess_dataset function:
 ```python
