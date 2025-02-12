@@ -11,7 +11,7 @@ def preprocess_dataset(
     bg_removal_window: tuple = (2200, 2500),
     sup_norm_threshold: float = 0.15,
     verbose: bool = True,
-    option: str = 'proper_bg_maxnorm'
+    option: str = 'proper_bg_proper_norm'
 ) -> xr.DataArray:
     """Preprocess xarray datasets by subtracting the background, normalizing to the max and removing outliers, i.e. spectra with cosmic rays or other artifacts.
 
@@ -60,6 +60,11 @@ def preprocess_dataset(
         shift: float = 0
         ):
         return dataset + shift
+    
+    # Normalizing dataset into [0,1] range
+    def proper_norm_fn(dataset):
+        dataset_norm = maxnorm_fn( neg_val_removal_fn(dataset) )
+        return dataset_norm
 
     # Outlier removal
     def outlier_removal_fn(
@@ -97,13 +102,23 @@ def preprocess_dataset(
             preprocessed_dataset = bg_removal_fn(
                 dataset
                 )
-    
+
         case 'proper_bg_maxnorm':
             preprocessed_dataset = maxnorm_fn(
                 proper_bg_removal_fn(
                     dataset
                     ) 
                 )
+        case 'proper_bg_proper_norm':
+            # (data-data.min)/data.max
+            preprocessed_dataset = outlier_removal_fn(
+                shifting_fn(
+                    proper_norm_fn(
+                        dataset
+                    ), shift=0.1
+                )
+            )
+    
     
     
     return preprocessed_dataset

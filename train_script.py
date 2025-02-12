@@ -28,7 +28,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min20_gamma_0p1to1p1"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min21_CorrPoiss"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     train_ds = full_ds[train_indices]
     val_ds = full_ds[val_indices]
     print(f"Training samples: {len(train_ds)}, Validation samples: {len(val_ds)}, Total: {len(full_ds)}={len(train_ds)+len(val_ds)}")
-
+    print("Filtered train dataset shape:", train_ds.shape)
     # ####################################################################################################
     # 
     # ####################################################################################################

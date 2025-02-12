@@ -1,3 +1,47 @@
+#### Feb 11, 2025
+Successfully implemented corrected Poissonian loss function.
+
+Poisson loss have this formula:
+
+$$
+L_{Poisson}(true, pred)=pred-true*log(pred)
+$$
+
+From this we know that prediction can not be negative, ant therefore true data.
+
+Moreower, for every true data point value there is a separate loss function with its own minimum. In contrast, for MSE loss regardless of data - loss minima will be zero.
+
+I wanted to implement that also for Poisson.
+
+For this, I've found a function of each minimum at a given true value:
+
+$$
+min = true - true*log(true)
+$$
+
+Substracting one from the other gives the corrected formula:
+
+$$
+L_{CorrPoiss}=(pred-true) + true*log(true/pred).
+$$
+
+But it is not solving the issue of log calculation. After implementing that I've faced an old problem of NaN issue. To solve this, I've looked at true data and figured out - there is no NaN or PosInf or NegInf. At least after proper preprocessing. It appears that my NaN/Inf catching itself is wrongly executed: it seems that lax.cond makes both actions regardless of the condition. Whatever.
+
+And I am more than sure that the model being initialised from scratch is not predicting NaN/Inf values, which I've also checked.
+
+But still the question how to preprocess data is present.
+
+Raw data doesn't show Poissonian statistics. Mean is proportional to the STD and not variance. While after normalization it resolves Poissonian statistics, but still in not a pure way. It should be $$var = \mu$$, but i found $$var = (8.36)e-4 * \mu + 1e-5$$. So, first - there is an offset, second - there is a coefficient.
+
+Relation between mean and STD:
+$$
+\sigma = 0.02*\mu+0.009
+$$
+
+What is the statistical distribution that could have such property?
+
+Anyway, for using every Poissonian or Gamma or whatever function containing logarithm - we need to be sure of correct calculations. For this reason, I've shifted all data by arbitrary number 0.1 after normalization. For now, data is in range $$[ 0.1 ; 1.1 ]$$. It is to be sure there will be no NegInf after log operation. I think every range inside $$(0,e]$$ is ok since old Poisson loss function had non-negative minima in this range. I will check it by comparing the performance of the models taught on different offsets. But I think they will be the same.
+
 #### Feb 05, 2025
 Trying to implement Gamma loss. Without any changes in input pipeline it is negative both train and val.
 With changes of a pipeline 
