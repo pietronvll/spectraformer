@@ -116,7 +116,37 @@ def train_step(state: TrainState, batch: Batch, dropout_key):
         # jax.debug.print('About to exit loss fn')
         return loss
     
-    grad_fn = jax.value_and_grad(corrected_poisson_loss_fn)
+    def corrected_gamma_loss_fn(params):
+        pred_spectra = state.apply_fn(
+            {"params": params},
+            batch["masked_spectra"],
+            batch["wave_number"],
+            batch["mask"],
+            training=True,
+            rngs={"dropout": dropout_train_key},
+        )
+        # jax.debug.print('Went inside loss fn')
+        
+        # print(f'Shape of predicted spectra: {jnp.shape(pred_spectra)}')
+        
+        # NaN or Inf check using lax
+        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+        # Use lax.cond to act on the condition
+        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
+        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        # jax.debug.print('AFTER CONDITION')
+        # if nan_check_pred_spectra or inf_check_pred_spectra:
+        #     print(f'Training: Replacing NaN -> 1e-2, posinf -> 1, neginf -> 1e-2')
+        #     pred_spectra = jnp.nan_to_num(pred_spectra, nan=1e-2, posinf=1, neginf=1e-2)
+        
+        # print(jnp.any(jnp.isneginf(jnp.log(batch["spectra"] / pred_spectra))))
+        
+        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra )).mean()
+        # jax.debug.print('About to exit loss fn')
+        return loss
+    
+    grad_fn = jax.value_and_grad(corrected_gamma_loss_fn)
     loss, grads = grad_fn(state.params)
     
     
@@ -198,7 +228,12 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
         #     pred_spectra = jnp.nan_to_num(pred_spectra, nan=1e-2, posinf=1, neginf=1e-2)
         loss = ((pred_spectra - batch["spectra"]) + batch["spectra"] * jnp.log(batch["spectra"] / pred_spectra)).mean()
         return loss
+    
+    def val_corrected_gamma_fn(params):
+        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra )).mean()
+        return loss
 
+    corrected_gamma_loss = val_corrected_gamma_fn(state.params)
     corrected_poisson_loss = val_corrected_poisson_loss_fn(state.params)
     poisson_loss = val_poisson_loss_fn(state.params)
     gamma_loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
@@ -206,6 +241,7 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
     mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
     
     val_metrics = {
+        "val_corrected_gamma_loss": corrected_gamma_loss,
         "val_corrected_poisson_loss": corrected_poisson_loss,
         "val_poisson_loss": poisson_loss,
         "val_gamma_loss": gamma_loss, 
@@ -272,6 +308,7 @@ def validation_epoch(
     if epoch % configs.log_every_epochs == 0:
         metric_writer.add_scalar("val/val_poisson_loss", avg_metrics["val_poisson_loss"].item(), state.step)
         metric_writer.add_scalar("val/val_corrected_poisson_loss", avg_metrics["val_corrected_poisson_loss"].item(), state.step)
+        metric_writer.add_scalar("val/val_corrected_gamma_loss", avg_metrics["val_corrected_gamma_loss"].item(), state.step)
         metric_writer.add_scalar("val/val_gamma_loss", avg_metrics["val_gamma_loss"].item(), state.step)
         metric_writer.add_scalar("val/cos_sim", avg_metrics["cos_sim"].item(), state.step)
         metric_writer.add_scalar("val/MSE", avg_metrics["MSE"].item(), state.step)
