@@ -304,7 +304,7 @@ def validation_epoch(
     metrics = stack_forest(metrics)
     avg_metrics = jax.tree_map(jnp.mean, metrics)  # Log the average error of the epoch
 
-    print(f"Validation -- Epoch {epoch + 1} -- Poisson Loss {avg_metrics['val_poisson_loss'].item():.3e} -- Gamma Loss {avg_metrics['val_gamma_loss'].item():.3e} -- Cos_sim {avg_metrics['cos_sim'].item():.3e} -- MSE {avg_metrics['MSE'].item():.3e}")
+    print(f"Validation -- Epoch {epoch + 1} -- CorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e} -- CorrPoisson Loss {avg_metrics['val_corrected_poisson_loss'].item():.3e} -- -- Poisson Loss {avg_metrics['val_poisson_loss'].item():.3e} -- Gamma Loss {avg_metrics['val_gamma_loss'].item():.3e} -- Cos_sim {avg_metrics['cos_sim'].item():.3e} -- MSE {avg_metrics['MSE'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
         metric_writer.add_scalar("val/val_poisson_loss", avg_metrics["val_poisson_loss"].item(), state.step)
         metric_writer.add_scalar("val/val_corrected_poisson_loss", avg_metrics["val_corrected_poisson_loss"].item(), state.step)

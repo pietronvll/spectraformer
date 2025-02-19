@@ -164,6 +164,8 @@ if __name__ == "__main__":
         )
         val_metrics.append(epoch_val_metrics)
         
+        
+        
         # # Early stop (?)
         # early_stop = early_stop.update(metrics["loss"])
         # if early_stop.should_stop:
