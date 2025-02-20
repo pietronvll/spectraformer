@@ -142,10 +142,11 @@ def preprocess_dataset_raw(
         xr.DataArray: Processed dataset
     """
     # Background removal
-    bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
-    bg_value = bg_removal_window.median()
-    # dataset = dataset - bg_value
-    dataset = dataset - dataset.min(dim='wave_number')
+    if not raw:
+        bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
+        bg_value = bg_removal_window.median()
+        # dataset = dataset - bg_value
+        dataset = dataset - dataset.min(dim='wave_number')
     
     # Normalization to the max
     if not raw:
