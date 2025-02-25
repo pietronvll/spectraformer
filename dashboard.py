@@ -16,6 +16,7 @@ from spectraformer.model import SpectraFormer
 
 train_data_file = "SiC_19x10x3.nc"
 test_data_file = "SiC+Graphene_50x20.nc"
+# test_data_file = "SiC_19x10x3.nc"
 
 train_ds = preprocess_dataset(xr.load_dataarray(f"data/{train_data_file}"))
 test_ds = preprocess_dataset(xr.load_dataarray(f"data/{test_data_file}"))
@@ -90,7 +91,7 @@ def load_model(model_tag: str):
 
 
 st.title("Spectraformer dashboard")
-current_model_tag = st.selectbox("Select model:", available_models, index=None)
+current_model_tag = st.selectbox("Select model (from a checkpoint):", available_models, index=None)
 
 if current_model_tag is not None:
     with st.status(f"Loading {current_model_tag}"):
