@@ -43,6 +43,9 @@ config_file_path = configsdir / config_file_name
 mixdir = datadir / "mixtures"
 mixdir.mkdir(parents=True, exist_ok=True)
 
+unmixdir = mixdir / "unmixed"
+unmixdir.mkdir(parents=True, exist_ok=True)
+
 def load_model(
     configs,
     dataset
@@ -132,8 +135,11 @@ if __name__ == "__main__":
     state = load_model(configs, dataset=train_ds)
     
     for elem in epath.Path(mixdir).iterdir():
+        # Loading dataset
         dataset_elem = preprocess_dataset( xr.load_dataarray(elem) )
+        # Making predictions
         predictions = prediction_fn(configs, dataset_elem, state)
-        predictions.to_netcdf(mixdir / f"{elem}_unmixed.nc")
+        # Saving predictions
+        predictions.to_netcdf(unmixdir / f"{elem}_unmixed.nc")
     
     print('Unmixing done.')
