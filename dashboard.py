@@ -15,11 +15,11 @@ from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
 
 train_data_file = "SiC_19x10x3.nc"
-test_data_file = "SiC+Graphene_50x20.nc"
-# test_data_file = "SiC_19x10x3.nc"
+# test_data_file = "mixtures/5101buffer1_18x18.nc"
+test_data_file = "SiC_19x10x3.nc"
 
 train_ds = preprocess_dataset(xr.load_dataarray(f"data/{train_data_file}"))
-test_ds = preprocess_dataset(xr.load_dataarray(f"data/{test_data_file}"))
+# test_ds = preprocess_dataset(xr.load_dataarray(f"data/{test_data_file}"))
 
 ckpts_path = "/home/dpoteryayev/SpectraFormer/checkpoints/"
 available_models = []
@@ -29,9 +29,24 @@ for elem in epath.Path(ckpts_path).iterdir():
     if tagname != "checkpoints":
         available_models.append(tagname)
 
+datasets_path = "/home/dpoteryayev/SpectraFormer/data/mixtures/"
+available_datasets = []
+
+for elem in epath.Path(datasets_path).iterdir():
+    tagname = str(elem).split("/")[-1]
+    if tagname != "mixtures":
+        available_datasets.append(tagname)
 
 @st.cache_resource
-def load_model(model_tag: str):
+def load_model(
+    model_tag: str,
+    dataset_tag: str,
+    mask_start_tag: int = 1700,
+    mask_end_tag: int = 2500
+    ):
+    
+    test_ds = preprocess_dataset(xr.load_dataarray(f"data/mixtures/{dataset_tag}"))
+    
     st.write("Loading Checkpoint")
     ckpt_manager = ocp.CheckpointManager(
         ckpts_path + model_tag,
@@ -39,8 +54,11 @@ def load_model(model_tag: str):
     )
     st.write("Parsing Configuration File")
     configs = ml_confs.from_dict(ckpt_manager.metadata())
+    # mask_windows = list(
+    #     zip(configs.masked_interval_starts, configs.masked_interval_ends)
+    # )
     mask_windows = list(
-        zip(configs.masked_interval_starts, configs.masked_interval_ends)
+        zip([1000, mask_end_tag], [mask_start_tag, 2900])
     )
     dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
     # Re-initialize model based on loaded configs
@@ -91,12 +109,25 @@ def load_model(model_tag: str):
 
 
 st.title("Spectraformer dashboard")
+
+current_dataset_tag = st.selectbox("Select dataset (from mixtures folder):", available_datasets, index=None)
+
+available_mask_start = [1400,1500,1600,1700,1800,1900,2000]
+current_mask_start_tag = st.selectbox("Select left window boundary (standard 1700):", available_mask_start, index=None)
+available_mask_end = [2000,2100,2200,2300,2400,2500,2600,2700,2800]
+current_mask_end_tag = st.selectbox("Select right window boundary (standard 2500):", available_mask_end, index=None)
+
 current_model_tag = st.selectbox("Select model (from a checkpoint):", available_models, index=None)
 
 if current_model_tag is not None:
     with st.status(f"Loading {current_model_tag}"):
-        state, spectraformer_predictions = load_model(current_model_tag)
-    st.write(f"Explore Predictions on `{test_data_file}`")
+        state, spectraformer_predictions = load_model(
+            model_tag=current_model_tag,
+            dataset_tag=current_dataset_tag, 
+            mask_start_tag=current_mask_start_tag, 
+            mask_end_tag=current_mask_end_tag
+            )
+    st.write(f"Explore Predictions on `{current_dataset_tag}`")
     data_idx = st.slider("", 1, len(spectraformer_predictions), value=1)
 
     fig, ax = plot_results(spectraformer_predictions[data_idx])

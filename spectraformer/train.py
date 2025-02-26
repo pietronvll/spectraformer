@@ -22,7 +22,10 @@ def log_gpu_usage(gpustat_entry, step, writer):
 
 
 @jax.jit
-def train_step(state: TrainState, batch: Batch, dropout_key):
+def train_step(
+    state: TrainState, 
+    batch: Batch, dropout_key
+    ):
     # jax.debug.print('Went inside train step')
     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
 

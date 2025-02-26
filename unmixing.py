@@ -1,6 +1,6 @@
 from pathlib import Path
 
-# import numpy as np
+import numpy as np
 import jax
 print("JAX devices: ", jax.devices())
 import ml_confs
@@ -139,7 +139,50 @@ if __name__ == "__main__":
         dataset_elem = preprocess_dataset( xr.load_dataarray(elem) )
         # Making predictions
         predictions = prediction_fn(configs, dataset_elem, state)
+        # 1) Figure out how many samples and how long each array is:
+        N = len(predictions)  # Number of dictionaries
+        M = len(predictions[0]["wave_number"])  # Assuming all wave_number arrays have same length
+
+        # 2) Allocate NumPy arrays for each key:
+        arr_spectra = np.zeros((N, M), dtype=np.float32)
+        arr_masked_spectra = np.zeros((N, M), dtype=np.float32)
+        arr_mask = np.zeros((N, M), dtype=bool)
+        arr_predicted_spectra = np.zeros((N, M), dtype=np.float32)
+        arr_predicted_difference = np.zeros((N, M), dtype=np.float32)
+
+        # We'll store wave_number just once, assuming it's the same for all dictionaries:
+        arr_wave_number = np.zeros(M, dtype=np.float32)
+
+        # 3) Populate these arrays by looping over the list of dictionaries:
+        for i, d in enumerate(predictions):
+            # Convert JAX -> NumPy if needed using jax.device_get or np.asarray
+            arr_spectra[i, :] = np.asarray(jax.device_get(d["spectra"]))
+            arr_masked_spectra[i, :] = np.asarray(jax.device_get(d["masked_spectra"]))
+            arr_mask[i, :] = np.asarray(jax.device_get(d["mask"]))
+            arr_predicted_spectra[i, :] = np.asarray(jax.device_get(d["predicted_spectra"]))
+            arr_predicted_difference[i, :] = np.asarray(jax.device_get(d["predicted_difference"]))
+
+        # For wave_number, we just take from the first dictionary (assuming identical for all)
+        arr_wave_number[:] = np.asarray(jax.device_get(predictions[0]["wave_number"]))
+
+        # 4) Build an xarray.Dataset with dimensions ("sample", "wave_number")
+        ds = xr.Dataset(
+            {
+                "spectra": (("sample", "wave_number"), arr_spectra),
+                "masked_spectra": (("sample", "wave_number"), arr_masked_spectra),
+                "mask": (("sample", "wave_number"), arr_mask),
+                "predicted_spectra": (("sample", "wave_number"), arr_predicted_spectra),
+                "predicted_difference": (("sample", "wave_number"), arr_predicted_difference),
+            },
+            coords={
+                "sample": np.arange(N),
+                "wave_number": arr_wave_number,
+            },
+        )
+
+        # 5) Save the dataset to NetCDF
         # Saving predictions
-        predictions.to_netcdf(unmixdir / f"{elem}_unmixed.nc")
+        ds.to_netcdf(unmixdir / f"unmixed_by_{model_tag}_{elem}", engine="netcdf4")
+        print(f"Saved unmixed_by_{model_tag}_{elem}")
     
     print('Unmixing done.')
