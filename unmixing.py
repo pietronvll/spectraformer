@@ -43,7 +43,7 @@ config_file_path = configsdir / config_file_name
 mixdir = datadir / "mixtures"
 mixdir.mkdir(parents=True, exist_ok=True)
 
-unmixdir = mixdir / "unmixed"
+unmixdir = datadir / "unmixed"
 unmixdir.mkdir(parents=True, exist_ok=True)
 
 def load_model(
@@ -182,7 +182,7 @@ if __name__ == "__main__":
 
         # 5) Save the dataset to NetCDF
         # Saving predictions
-        ds.to_netcdf(unmixdir / f"unmixed_by_{model_tag}_{elem}", engine="netcdf4")
+        ds.to_netcdf(unmixdir / f"unmixed_by_{model_tag}_{elem.name}", engine="netcdf4")
         print(f"Saved unmixed_by_{model_tag}_{elem}")
     
     print('Unmixing done.')
