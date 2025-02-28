@@ -254,11 +254,30 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
     return state, val_metrics
 
 def train_epoch(
-    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager
+    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key
 ):
+    random_uniform_key_1 = jax.random.uniform(window_RNG_key, minval=0, maxval=1).item()
+    random_uniform_key_2 = jax.random.uniform(window_RNG_key, minval=0.10, maxval=1.00).item() # from 10 to 100 percent of a half of a spectra lenght
+    
+    spectra_lenght = train_ds["wave_number"][-1].item() - train_ds["wave_number"][0].item()
+    
+    # spectra_middle = (train_ds["wave_number"][-1].item() + train_ds["wave_number"][0].item()) / 2
+    
+    spectra_start = train_ds["wave_number"][0].item()
+    
+    window_start = spectra_start + random_uniform_key_1 * spectra_lenght / 2
+    
+    window_size = random_uniform_key_2 * spectra_lenght / 2
+    
+    window_end = window_start + window_size
+    
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
     )
+    
+    mask_windows[0][1] = window_start
+    mask_windows[1][0] = window_end
+    
     data_loader = batch_sampler(
         train_ds,
         mask_windows,

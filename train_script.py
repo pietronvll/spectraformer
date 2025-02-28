@@ -101,6 +101,7 @@ if __name__ == "__main__":
     # RNG Keys
     root_key = jax.random.key(seed=configs.root_rng_seed)
     main_key, params_key, dropout_key = jax.random.split(key=root_key, num=3)
+    window_RNG_key = jax.random.split(main_key, num=1)[0]
 
     # Model Initialization
     variables = model.init(
@@ -152,9 +153,11 @@ if __name__ == "__main__":
     # Training & metrics calculation section
     ####################################################################################################
     for epoch in range(configs.num_epochs):
+        # Key updating
+        window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
         # Training
         state, epoch_train_metrics = train_epoch(
-            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager
+            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key
         )
         train_metrics.append(epoch_train_metrics)
         
