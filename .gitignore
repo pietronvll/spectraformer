@@ -9,6 +9,7 @@
 *checkpoints/
 *logs/
 *.png
+*temp/
 
 
 # User-specific files

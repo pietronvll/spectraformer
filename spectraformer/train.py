@@ -6,6 +6,7 @@ from jax import lax
 from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
 import optax
+from functools import partial
 
 from spectraformer.input_pipeline import Batch, batch_sampler
 
@@ -21,12 +22,13 @@ def log_gpu_usage(gpustat_entry, step, writer):
     )
 
 
-@jax.jit
+@partial(jax.jit, static_argnames=("configs_mean",))
 def train_step(
     state: TrainState, 
-    batch: Batch, dropout_key
+    batch: Batch, 
+    dropout_key,
+    configs_mean
     ):
-    # jax.debug.print('Went inside train step')
     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
 
     def poisson_loss_fn(params):
@@ -128,9 +130,7 @@ def train_step(
             training=True,
             rngs={"dropout": dropout_train_key},
         )
-        # jax.debug.print('Went inside loss fn')
         
-        # print(f'Shape of predicted spectra: {jnp.shape(pred_spectra)}')
         
         # NaN or Inf check using lax
         nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
@@ -138,26 +138,39 @@ def train_step(
         # Use lax.cond to act on the condition
         lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
         lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
-        # jax.debug.print('AFTER CONDITION')
-        # if nan_check_pred_spectra or inf_check_pred_spectra:
-        #     print(f'Training: Replacing NaN -> 1e-2, posinf -> 1, neginf -> 1e-2')
-        #     pred_spectra = jnp.nan_to_num(pred_spectra, nan=1e-2, posinf=1, neginf=1e-2)
         
-        # print(jnp.any(jnp.isneginf(jnp.log(batch["spectra"] / pred_spectra))))
         
-        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra )).mean()
-        # jax.debug.print('About to exit loss fn')
+        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
+        
+        def my_geometric_mean(loss, eps=1e-8):
+            """
+            Geometric mean calculating using a formula:
+            GM(x)=exp( 1/N * sum( log(x_i) ) )
+            """
+            
+            # Making sure to have no negative values in the loss with all information keeping
+            non_negative = abs(loss)
+            # Making sure having strictly positive values
+            clipped = jnp.clip(non_negative, eps)
+            # Calculating the log
+            log_values = jnp.log(clipped)
+            # Log averaging
+            mean_log = jnp.mean(log_values)
+            # Going back from log to normal value by exponentiation
+            return jnp.exp(mean_log)
+        
+        match configs_mean:
+            case 'Arithmetic':
+                loss = loss.mean()
+            case 'Geometric':
+                loss = my_geometric_mean(loss)
+            case _:
+                raise Exception(f"You didn't specify a mean to be used!")
+        
         return loss
     
     grad_fn = jax.value_and_grad(corrected_gamma_loss_fn)
     loss, grads = grad_fn(state.params)
-    
-    
-    
-    
-
-        
-
     
     # Flatten the PyTree of gradients
     flat_grads, _ = jax.tree_util.tree_flatten(grads)
@@ -172,7 +185,7 @@ def train_step(
     lax.cond(nan_check_grads, lambda _: jax.debug.print("NaN detected in grads"), lambda _: None, operand=None)
     lax.cond(inf_check_grads, lambda _: jax.debug.print("Inf detected in grads"), lambda _: None, operand=None)
     
-    # Compute statistics
+    # Compute gradient parameters for logging
     grad_min = jnp.min(all_grads)
     grad_mean = jnp.mean(all_grads)
     grad_median = jnp.median(all_grads)
@@ -186,11 +199,14 @@ def train_step(
         "grad_median": grad_median,
         "grad_max": grad_max
         }
-    # jax.debug.print('About to exit train step')
     return state, train_metrics
 
-@jax.jit
-def validation_step(state: TrainState, batch: Batch, dropout_key):
+@partial(jax.jit, static_argnames=("configs_mean",))
+def validation_step(
+    state: TrainState, 
+    batch: Batch, 
+    dropout_key,
+    configs_mean):
     dropout_val_key = jax.random.fold_in(key=dropout_key, data=state.step)
     
     pred_spectra = state.apply_fn(
@@ -233,50 +249,76 @@ def validation_step(state: TrainState, batch: Batch, dropout_key):
         return loss
     
     def val_corrected_gamma_fn(params):
-        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra )).mean()
+        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
+        
+        def my_geometric_mean(loss, eps=1e-8):
+            """
+            Geometric mean calculating using a formula:
+            GM(x)=exp( 1/N * sum( log(x_i) ) )
+            """
+            
+            # Making sure to have no negative values in the loss with all information keeping
+            non_negative = abs(loss)
+            # Making sure having strictly positive values
+            clipped = jnp.clip(non_negative, eps)
+            # Calculating the log
+            log_values = jnp.log(clipped)
+            # Log averaging
+            mean_log = jnp.mean(log_values)
+            # Going back from log to normal value by exponentiation
+            return jnp.exp(mean_log)
+        
+        match configs_mean:
+            case 'Arithmetic':
+                loss = loss.mean()
+            case 'Geometric':
+                loss = my_geometric_mean(loss)
+            case _:
+                raise Exception(f"You didn't specify a mean to be used!")
+        
+        
         return loss
 
     corrected_gamma_loss = val_corrected_gamma_fn(state.params)
-    corrected_poisson_loss = val_corrected_poisson_loss_fn(state.params)
-    poisson_loss = val_poisson_loss_fn(state.params)
-    gamma_loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
-    cos_sim = optax.losses.cosine_similarity(pred_spectra, batch["spectra"]).mean()     # Cosine similarity - measure of how close vectors are in terms of a direction (1 - same direction, 0 - orthogonal, -1 - opposite)
+    # corrected_poisson_loss = val_corrected_poisson_loss_fn(state.params)
+    # poisson_loss = val_poisson_loss_fn(state.params)
+    # gamma_loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
+    # cos_sim = optax.losses.cosine_similarity(pred_spectra, batch["spectra"]).mean()     # Cosine similarity - measure of how close vectors are in terms of a direction (1 - same direction, 0 - orthogonal, -1 - opposite)
     mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
     
     val_metrics = {
         "val_corrected_gamma_loss": corrected_gamma_loss,
-        "val_corrected_poisson_loss": corrected_poisson_loss,
-        "val_poisson_loss": poisson_loss,
-        "val_gamma_loss": gamma_loss, 
-        "cos_sim": cos_sim, 
+        # "val_corrected_poisson_loss": corrected_poisson_loss,
+        # "val_poisson_loss": poisson_loss,
+        # "val_gamma_loss": gamma_loss, 
+        # "cos_sim": cos_sim, 
         "MSE": mse
         }
     return state, val_metrics
 
 def train_epoch(
-    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key
+    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
 ):
-    random_uniform_key_1 = jax.random.uniform(window_RNG_key, minval=0, maxval=1).item()
-    random_uniform_key_2 = jax.random.uniform(window_RNG_key, minval=0.10, maxval=1.00).item() # from 10 to 100 percent of a half of a spectra lenght
+    masked_interval_starts_config = configs.masked_interval_starts
+    masked_interval_ends_config = configs.masked_interval_ends
     
-    spectra_lenght = train_ds["wave_number"][-1].item() - train_ds["wave_number"][0].item()
-    
-    # spectra_middle = (train_ds["wave_number"][-1].item() + train_ds["wave_number"][0].item()) / 2
-    
-    spectra_start = train_ds["wave_number"][0].item()
-    
-    window_start = spectra_start + random_uniform_key_1 * spectra_lenght / 2
-    
-    window_size = random_uniform_key_2 * spectra_lenght / 2
-    
-    window_end = window_start + window_size
+    ######################################################################################
+    if configs.random_mask:
+        random_uniform_key_1 = jax.random.uniform(window_RNG_key, minval=0, maxval=1).item()
+        random_uniform_key_2 = jax.random.uniform(window_RNG_key, minval=0.10, maxval=1.00).item() # from 10 to 100 percent of a half of a spectra lenght
+        spectra_lenght = train_ds["wave_number"][-1].item() - train_ds["wave_number"][0].item()
+        spectra_start = train_ds["wave_number"][0].item()
+        window_start = spectra_start + random_uniform_key_1 * spectra_lenght / 2
+        window_size = random_uniform_key_2 * spectra_lenght / 2
+        window_end = window_start + window_size
+        masked_interval_starts_config[1] = window_end
+        masked_interval_ends_config[0] = window_start
+    ######################################################################################
     
     mask_windows = list(
-        zip(configs.masked_interval_starts, configs.masked_interval_ends)
+        zip(masked_interval_starts_config, masked_interval_ends_config)
     )
     
-    mask_windows[0][1] = window_start
-    mask_windows[1][0] = window_end
     
     data_loader = batch_sampler(
         train_ds,
@@ -287,7 +329,7 @@ def train_epoch(
     )
     metrics = []
     for batch in data_loader:
-        state, batch_metrics = train_step(state, batch, rng_streams["dropout"])
+        state, batch_metrics = train_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
         metrics.append(batch_metrics)
 
     metrics = stack_forest(metrics)
@@ -306,7 +348,7 @@ def train_epoch(
     return state, metrics
 
 def validation_epoch(
-    state, epoch: int, val_ds, configs, rng_streams, metric_writer, ckpt_manager
+    state, epoch: int, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
 ):
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
@@ -320,19 +362,19 @@ def validation_epoch(
     )
     metrics = []
     for batch in data_loader:
-        state, batch_metrics = validation_step(state, batch, rng_streams["dropout"])
+        state, batch_metrics = validation_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
         metrics.append(batch_metrics)
 
     metrics = stack_forest(metrics)
     avg_metrics = jax.tree_map(jnp.mean, metrics)  # Log the average error of the epoch
 
-    print(f"Validation -- Epoch {epoch + 1} -- CorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e} -- CorrPoisson Loss {avg_metrics['val_corrected_poisson_loss'].item():.3e} -- -- Poisson Loss {avg_metrics['val_poisson_loss'].item():.3e} -- Gamma Loss {avg_metrics['val_gamma_loss'].item():.3e} -- Cos_sim {avg_metrics['cos_sim'].item():.3e} -- MSE {avg_metrics['MSE'].item():.3e}")
+    print(f"Validation -- Epoch {epoch + 1} -- CorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
-        metric_writer.add_scalar("val/val_poisson_loss", avg_metrics["val_poisson_loss"].item(), state.step)
-        metric_writer.add_scalar("val/val_corrected_poisson_loss", avg_metrics["val_corrected_poisson_loss"].item(), state.step)
+        # metric_writer.add_scalar("val/val_poisson_loss", avg_metrics["val_poisson_loss"].item(), state.step)
+        # metric_writer.add_scalar("val/val_corrected_poisson_loss", avg_metrics["val_corrected_poisson_loss"].item(), state.step)
         metric_writer.add_scalar("val/val_corrected_gamma_loss", avg_metrics["val_corrected_gamma_loss"].item(), state.step)
-        metric_writer.add_scalar("val/val_gamma_loss", avg_metrics["val_gamma_loss"].item(), state.step)
-        metric_writer.add_scalar("val/cos_sim", avg_metrics["cos_sim"].item(), state.step)
+        # metric_writer.add_scalar("val/val_gamma_loss", avg_metrics["val_gamma_loss"].item(), state.step)
+        # metric_writer.add_scalar("val/cos_sim", avg_metrics["cos_sim"].item(), state.step)
         metric_writer.add_scalar("val/MSE", avg_metrics["MSE"].item(), state.step)
         for gpu_stats in gpustat.new_query():
             log_gpu_usage(gpu_stats.entry, state.step, metric_writer)

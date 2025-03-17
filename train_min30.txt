@@ -1,0 +1,628 @@
+JAX devices:  [CudaDevice(id=0), CudaDevice(id=1)]
+┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ Key                    ┃ Value                        ┃ Type      ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━┩
+│ tag                    │ spectraformer:min30_GeomLoss │ str       │
+│ embedding_dim          │ 64                           │ int       │
+│ num_heads              │ 8                            │ int       │
+│ num_layers             │ 2                            │ int       │
+│ learning_rate          │ 0.001                        │ float     │
+│ num_epochs             │ 300                          │ int       │
+│ batch_size             │ 19                           │ int       │
+│ dropout_rate           │ 0.5                          │ float     │
+│ root_rng_seed          │ 0                            │ int       │
+│ train_dataset          │ SiC_19x10x3                  │ str       │
+│ log_every_epochs       │ 5                            │ int       │
+│ masked_interval_starts │ [1000, 2000]                 │ list[int] │
+│ masked_interval_ends   │ [1660, 2900]                 │ list[int] │
+│ random_mask            │ False                        │ bool      │
+└────────────────────────┴──────────────────────────────┴───────────┘
+Dropped 0 spectra
+Training samples: 812, Validation samples: 203, Total: 1015=1015
+Filtered train dataset shape: (812, 570)
+Train dataset of length 570 with leaves of shape:
+  spectra -> (1, 812, 1)
+  masked_spectra -> (1, 812, 1)
+  wave_number -> (812, 1)
+  mask -> (812,)
+Resuming training from step 26640.
+Epoch 1 -- Loss 3.003e-04
+Validation -- Epoch 1 -- CorrGamma Loss 2.116e-03
+Epoch 2 -- Loss 3.095e-04
+Validation -- Epoch 2 -- CorrGamma Loss 2.730e-03
+Epoch 3 -- Loss 2.926e-04
+Validation -- Epoch 3 -- CorrGamma Loss 4.180e-03
+Epoch 4 -- Loss 2.438e-04
+Validation -- Epoch 4 -- CorrGamma Loss 3.719e-03
+Epoch 5 -- Loss 2.762e-04
+Validation -- Epoch 5 -- CorrGamma Loss 3.544e-03
+Epoch 6 -- Loss 2.621e-04
+Validation -- Epoch 6 -- CorrGamma Loss 2.605e-03
+Epoch 7 -- Loss 2.473e-04
+Validation -- Epoch 7 -- CorrGamma Loss 3.451e-03
+Epoch 8 -- Loss 2.773e-04
+Validation -- Epoch 8 -- CorrGamma Loss 2.700e-03
+Epoch 9 -- Loss 2.442e-04
+Validation -- Epoch 9 -- CorrGamma Loss 2.513e-03
+Epoch 10 -- Loss 2.369e-04
+Validation -- Epoch 10 -- CorrGamma Loss 3.355e-03
+Epoch 11 -- Loss 2.637e-04
+Validation -- Epoch 11 -- CorrGamma Loss 3.704e-03
+Epoch 12 -- Loss 2.571e-04
+Validation -- Epoch 12 -- CorrGamma Loss 1.852e-03
+Epoch 13 -- Loss 3.558e-04
+Validation -- Epoch 13 -- CorrGamma Loss 3.348e-03
+Epoch 14 -- Loss 2.345e-04
+Validation -- Epoch 14 -- CorrGamma Loss 1.797e-03
+Epoch 15 -- Loss 3.131e-04
+Validation -- Epoch 15 -- CorrGamma Loss 2.968e-03
+Epoch 16 -- Loss 2.776e-04
+Validation -- Epoch 16 -- CorrGamma Loss 2.886e-03
+Epoch 17 -- Loss 2.158e-04
+Validation -- Epoch 17 -- CorrGamma Loss 2.283e-03
+Epoch 18 -- Loss 2.548e-04
+Validation -- Epoch 18 -- CorrGamma Loss 3.157e-03
+Epoch 19 -- Loss 2.791e-04
+Validation -- Epoch 19 -- CorrGamma Loss 2.726e-03
+Epoch 20 -- Loss 3.456e-04
+Validation -- Epoch 20 -- CorrGamma Loss 3.252e-03
+Epoch 21 -- Loss 2.542e-04
+Validation -- Epoch 21 -- CorrGamma Loss 2.896e-03
+Epoch 22 -- Loss 2.695e-04
+Validation -- Epoch 22 -- CorrGamma Loss 1.543e-03
+Epoch 23 -- Loss 3.137e-04
+Validation -- Epoch 23 -- CorrGamma Loss 3.837e-03
+Epoch 24 -- Loss 2.678e-04
+Validation -- Epoch 24 -- CorrGamma Loss 2.421e-03
+Epoch 25 -- Loss 4.026e-04
+Validation -- Epoch 25 -- CorrGamma Loss 3.052e-03
+Epoch 26 -- Loss 2.625e-04
+Validation -- Epoch 26 -- CorrGamma Loss 2.933e-03
+Epoch 27 -- Loss 2.701e-04
+Validation -- Epoch 27 -- CorrGamma Loss 2.767e-03
+Epoch 28 -- Loss 2.277e-04
+Validation -- Epoch 28 -- CorrGamma Loss 4.148e-03
+Epoch 29 -- Loss 2.781e-04
+Validation -- Epoch 29 -- CorrGamma Loss 3.541e-03
+Epoch 30 -- Loss 2.347e-04
+Validation -- Epoch 30 -- CorrGamma Loss 2.096e-03
+Epoch 31 -- Loss 2.876e-04
+Validation -- Epoch 31 -- CorrGamma Loss 1.547e-03
+Epoch 32 -- Loss 2.880e-04
+Validation -- Epoch 32 -- CorrGamma Loss 2.372e-03
+Epoch 33 -- Loss 3.484e-04
+Validation -- Epoch 33 -- CorrGamma Loss 3.831e-03
+Epoch 34 -- Loss 2.639e-04
+Validation -- Epoch 34 -- CorrGamma Loss 3.170e-03
+Epoch 35 -- Loss 3.108e-04
+Validation -- Epoch 35 -- CorrGamma Loss 2.005e-03
+Epoch 36 -- Loss 3.987e-04
+Validation -- Epoch 36 -- CorrGamma Loss 1.873e-03
+Epoch 37 -- Loss 2.717e-04
+Validation -- Epoch 37 -- CorrGamma Loss 3.029e-03
+Epoch 38 -- Loss 2.966e-04
+Validation -- Epoch 38 -- CorrGamma Loss 2.168e-03
+Epoch 39 -- Loss 2.088e-04
+Validation -- Epoch 39 -- CorrGamma Loss 2.263e-03
+Epoch 40 -- Loss 2.850e-04
+Validation -- Epoch 40 -- CorrGamma Loss 3.636e-03
+Epoch 41 -- Loss 2.254e-04
+Validation -- Epoch 41 -- CorrGamma Loss 2.749e-03
+Epoch 42 -- Loss 3.359e-04
+Validation -- Epoch 42 -- CorrGamma Loss 4.022e-03
+Epoch 43 -- Loss 2.499e-04
+Validation -- Epoch 43 -- CorrGamma Loss 2.199e-03
+Epoch 44 -- Loss 3.394e-04
+Validation -- Epoch 44 -- CorrGamma Loss 2.709e-03
+Epoch 45 -- Loss 2.441e-04
+Validation -- Epoch 45 -- CorrGamma Loss 2.052e-03
+Epoch 46 -- Loss 2.457e-04
+Validation -- Epoch 46 -- CorrGamma Loss 1.785e-03
+Epoch 47 -- Loss 4.197e-04
+Validation -- Epoch 47 -- CorrGamma Loss 1.924e-03
+Epoch 48 -- Loss 3.690e-04
+Validation -- Epoch 48 -- CorrGamma Loss 2.768e-03
+Epoch 49 -- Loss 5.608e-04
+Validation -- Epoch 49 -- CorrGamma Loss 7.957e-04
+Epoch 50 -- Loss 4.459e-04
+Validation -- Epoch 50 -- CorrGamma Loss 5.445e-04
+Epoch 51 -- Loss 3.413e-04
+Validation -- Epoch 51 -- CorrGamma Loss 9.103e-04
+Epoch 52 -- Loss 4.448e-04
+Validation -- Epoch 52 -- CorrGamma Loss 6.873e-04
+Epoch 53 -- Loss 3.197e-04
+Validation -- Epoch 53 -- CorrGamma Loss 6.070e-04
+Epoch 54 -- Loss 3.312e-04
+Validation -- Epoch 54 -- CorrGamma Loss 8.650e-04
+Epoch 55 -- Loss 3.177e-04
+Validation -- Epoch 55 -- CorrGamma Loss 8.741e-04
+Epoch 56 -- Loss 3.058e-04
+Validation -- Epoch 56 -- CorrGamma Loss 1.017e-03
+Epoch 57 -- Loss 2.819e-04
+Validation -- Epoch 57 -- CorrGamma Loss 1.008e-03
+Epoch 58 -- Loss 3.263e-04
+Validation -- Epoch 58 -- CorrGamma Loss 2.866e-03
+Epoch 59 -- Loss 3.051e-04
+Validation -- Epoch 59 -- CorrGamma Loss 1.145e-03
+Epoch 60 -- Loss 2.914e-04
+Validation -- Epoch 60 -- CorrGamma Loss 1.499e-03
+Epoch 61 -- Loss 2.754e-04
+Validation -- Epoch 61 -- CorrGamma Loss 1.845e-03
+Epoch 62 -- Loss 2.904e-04
+Validation -- Epoch 62 -- CorrGamma Loss 9.591e-04
+Epoch 63 -- Loss 2.663e-04
+Validation -- Epoch 63 -- CorrGamma Loss 2.024e-03
+Epoch 64 -- Loss 2.716e-04
+Validation -- Epoch 64 -- CorrGamma Loss 1.021e-03
+Epoch 65 -- Loss 3.229e-04
+Validation -- Epoch 65 -- CorrGamma Loss 9.451e-04
+Epoch 66 -- Loss 3.238e-04
+Validation -- Epoch 66 -- CorrGamma Loss 8.603e-04
+Epoch 67 -- Loss 2.181e-04
+Validation -- Epoch 67 -- CorrGamma Loss 2.651e-03
+Epoch 68 -- Loss 2.696e-04
+Validation -- Epoch 68 -- CorrGamma Loss 1.897e-03
+Epoch 69 -- Loss 2.313e-04
+Validation -- Epoch 69 -- CorrGamma Loss 1.378e-03
+Epoch 70 -- Loss 2.434e-04
+Validation -- Epoch 70 -- CorrGamma Loss 1.148e-03
+Epoch 71 -- Loss 2.553e-04
+Validation -- Epoch 71 -- CorrGamma Loss 2.491e-03
+Epoch 72 -- Loss 2.729e-04
+Validation -- Epoch 72 -- CorrGamma Loss 9.872e-04
+Epoch 73 -- Loss 2.307e-04
+Validation -- Epoch 73 -- CorrGamma Loss 9.981e-04
+Epoch 74 -- Loss 3.047e-04
+Validation -- Epoch 74 -- CorrGamma Loss 1.508e-03
+Epoch 75 -- Loss 2.311e-04
+Validation -- Epoch 75 -- CorrGamma Loss 1.280e-03
+Epoch 76 -- Loss 2.286e-04
+Validation -- Epoch 76 -- CorrGamma Loss 1.277e-03
+Epoch 77 -- Loss 2.930e-04
+Validation -- Epoch 77 -- CorrGamma Loss 1.673e-03
+Epoch 78 -- Loss 2.244e-04
+Validation -- Epoch 78 -- CorrGamma Loss 1.499e-03
+Epoch 79 -- Loss 2.328e-04
+Validation -- Epoch 79 -- CorrGamma Loss 1.500e-03
+Epoch 80 -- Loss 3.304e-04
+Validation -- Epoch 80 -- CorrGamma Loss 1.724e-03
+Epoch 81 -- Loss 4.342e-04
+Validation -- Epoch 81 -- CorrGamma Loss 9.760e-04
+Epoch 82 -- Loss 2.512e-04
+Validation -- Epoch 82 -- CorrGamma Loss 1.766e-03
+Epoch 83 -- Loss 3.184e-04
+Validation -- Epoch 83 -- CorrGamma Loss 1.602e-03
+Epoch 84 -- Loss 2.413e-04
+Validation -- Epoch 84 -- CorrGamma Loss 1.544e-03
+Epoch 85 -- Loss 2.215e-04
+Validation -- Epoch 85 -- CorrGamma Loss 2.469e-03
+Epoch 86 -- Loss 3.362e-04
+Validation -- Epoch 86 -- CorrGamma Loss 1.672e-03
+Epoch 87 -- Loss 2.440e-04
+Validation -- Epoch 87 -- CorrGamma Loss 1.632e-03
+Epoch 88 -- Loss 3.123e-04
+Validation -- Epoch 88 -- CorrGamma Loss 1.750e-03
+Epoch 89 -- Loss 3.288e-04
+Validation -- Epoch 89 -- CorrGamma Loss 1.167e-03
+Epoch 90 -- Loss 3.234e-04
+Validation -- Epoch 90 -- CorrGamma Loss 1.488e-03
+Epoch 91 -- Loss 2.681e-04
+Validation -- Epoch 91 -- CorrGamma Loss 1.426e-03
+Epoch 92 -- Loss 2.288e-04
+Validation -- Epoch 92 -- CorrGamma Loss 2.644e-03
+Epoch 93 -- Loss 2.462e-04
+Validation -- Epoch 93 -- CorrGamma Loss 2.534e-03
+Epoch 94 -- Loss 2.855e-04
+Validation -- Epoch 94 -- CorrGamma Loss 1.976e-03
+Epoch 95 -- Loss 2.189e-04
+Validation -- Epoch 95 -- CorrGamma Loss 1.746e-03
+Epoch 96 -- Loss 5.019e-04
+Validation -- Epoch 96 -- CorrGamma Loss 2.407e-03
+Epoch 97 -- Loss 3.008e-04
+Validation -- Epoch 97 -- CorrGamma Loss 1.378e-03
+Epoch 98 -- Loss 2.964e-04
+Validation -- Epoch 98 -- CorrGamma Loss 1.035e-03
+Epoch 99 -- Loss 2.519e-04
+Validation -- Epoch 99 -- CorrGamma Loss 1.872e-03
+Epoch 100 -- Loss 2.474e-04
+Validation -- Epoch 100 -- CorrGamma Loss 1.875e-03
+Epoch 101 -- Loss 2.919e-04
+Validation -- Epoch 101 -- CorrGamma Loss 3.289e-03
+Epoch 102 -- Loss 2.879e-04
+Validation -- Epoch 102 -- CorrGamma Loss 1.341e-03
+Epoch 103 -- Loss 3.606e-04
+Validation -- Epoch 103 -- CorrGamma Loss 1.974e-03
+Epoch 104 -- Loss 2.880e-04
+Validation -- Epoch 104 -- CorrGamma Loss 1.260e-03
+Epoch 105 -- Loss 2.315e-04
+Validation -- Epoch 105 -- CorrGamma Loss 1.094e-03
+Epoch 106 -- Loss 2.728e-04
+Validation -- Epoch 106 -- CorrGamma Loss 2.082e-03
+Epoch 107 -- Loss 2.418e-04
+Validation -- Epoch 107 -- CorrGamma Loss 1.482e-03
+Epoch 108 -- Loss 2.547e-04
+Validation -- Epoch 108 -- CorrGamma Loss 1.916e-03
+Epoch 109 -- Loss 2.425e-04
+Validation -- Epoch 109 -- CorrGamma Loss 1.606e-03
+Epoch 110 -- Loss 2.616e-04
+Validation -- Epoch 110 -- CorrGamma Loss 1.634e-03
+Epoch 111 -- Loss 2.320e-04
+Validation -- Epoch 111 -- CorrGamma Loss 1.836e-03
+Epoch 112 -- Loss 2.444e-04
+Validation -- Epoch 112 -- CorrGamma Loss 2.355e-03
+Epoch 113 -- Loss 2.394e-04
+Validation -- Epoch 113 -- CorrGamma Loss 3.303e-03
+Epoch 114 -- Loss 3.245e-04
+Validation -- Epoch 114 -- CorrGamma Loss 2.614e-03
+Epoch 115 -- Loss 3.462e-04
+Validation -- Epoch 115 -- CorrGamma Loss 2.915e-03
+Epoch 116 -- Loss 2.946e-04
+Validation -- Epoch 116 -- CorrGamma Loss 3.640e-03
+Epoch 117 -- Loss 3.321e-04
+Validation -- Epoch 117 -- CorrGamma Loss 1.552e-03
+Epoch 118 -- Loss 2.435e-04
+Validation -- Epoch 118 -- CorrGamma Loss 1.946e-03
+Epoch 119 -- Loss 2.886e-04
+Validation -- Epoch 119 -- CorrGamma Loss 2.835e-03
+Epoch 120 -- Loss 2.964e-04
+Validation -- Epoch 120 -- CorrGamma Loss 2.482e-03
+Epoch 121 -- Loss 2.476e-04
+Validation -- Epoch 121 -- CorrGamma Loss 1.703e-03
+Epoch 122 -- Loss 4.914e-04
+Validation -- Epoch 122 -- CorrGamma Loss 3.319e-03
+Epoch 123 -- Loss 2.776e-04
+Validation -- Epoch 123 -- CorrGamma Loss 2.267e-03
+Epoch 124 -- Loss 2.015e-04
+Validation -- Epoch 124 -- CorrGamma Loss 2.510e-03
+Epoch 125 -- Loss 2.391e-04
+Validation -- Epoch 125 -- CorrGamma Loss 1.241e-03
+Epoch 126 -- Loss 2.427e-04
+Validation -- Epoch 126 -- CorrGamma Loss 2.261e-03
+Epoch 127 -- Loss 2.376e-04
+Validation -- Epoch 127 -- CorrGamma Loss 2.679e-03
+Epoch 128 -- Loss 3.965e-04
+Validation -- Epoch 128 -- CorrGamma Loss 3.233e-03
+Epoch 129 -- Loss 3.654e-04
+Validation -- Epoch 129 -- CorrGamma Loss 1.143e-03
+Epoch 130 -- Loss 3.195e-04
+Validation -- Epoch 130 -- CorrGamma Loss 1.276e-03
+Epoch 131 -- Loss 2.676e-04
+Validation -- Epoch 131 -- CorrGamma Loss 1.910e-03
+Epoch 132 -- Loss 2.389e-04
+Validation -- Epoch 132 -- CorrGamma Loss 2.142e-03
+Epoch 133 -- Loss 2.431e-04
+Validation -- Epoch 133 -- CorrGamma Loss 1.748e-03
+Epoch 134 -- Loss 2.274e-04
+Validation -- Epoch 134 -- CorrGamma Loss 1.686e-03
+Epoch 135 -- Loss 3.332e-04
+Validation -- Epoch 135 -- CorrGamma Loss 2.269e-03
+Epoch 136 -- Loss 3.082e-04
+Validation -- Epoch 136 -- CorrGamma Loss 1.670e-03
+Epoch 137 -- Loss 2.633e-04
+Validation -- Epoch 137 -- CorrGamma Loss 1.207e-03
+Epoch 138 -- Loss 3.102e-04
+Validation -- Epoch 138 -- CorrGamma Loss 2.144e-03
+Epoch 139 -- Loss 4.164e-04
+Validation -- Epoch 139 -- CorrGamma Loss 1.807e-03
+Epoch 140 -- Loss 5.097e-04
+Validation -- Epoch 140 -- CorrGamma Loss 1.663e-03
+Epoch 141 -- Loss 3.341e-04
+Validation -- Epoch 141 -- CorrGamma Loss 1.493e-03
+Epoch 142 -- Loss 2.344e-04
+Validation -- Epoch 142 -- CorrGamma Loss 1.076e-03
+Epoch 143 -- Loss 2.872e-04
+Validation -- Epoch 143 -- CorrGamma Loss 2.769e-03
+Epoch 144 -- Loss 3.413e-04
+Validation -- Epoch 144 -- CorrGamma Loss 2.079e-03
+Epoch 145 -- Loss 2.237e-04
+Validation -- Epoch 145 -- CorrGamma Loss 1.533e-03
+Epoch 146 -- Loss 3.178e-04
+Validation -- Epoch 146 -- CorrGamma Loss 1.877e-03
+Epoch 147 -- Loss 2.945e-04
+Validation -- Epoch 147 -- CorrGamma Loss 1.096e-03
+Epoch 148 -- Loss 3.489e-04
+Validation -- Epoch 148 -- CorrGamma Loss 2.242e-03
+Epoch 149 -- Loss 2.817e-04
+Validation -- Epoch 149 -- CorrGamma Loss 2.099e-03
+Epoch 150 -- Loss 1.921e-04
+Validation -- Epoch 150 -- CorrGamma Loss 1.320e-03
+Epoch 151 -- Loss 2.540e-04
+Validation -- Epoch 151 -- CorrGamma Loss 2.252e-03
+Epoch 152 -- Loss 3.101e-04
+Validation -- Epoch 152 -- CorrGamma Loss 3.336e-03
+Epoch 153 -- Loss 2.595e-04
+Validation -- Epoch 153 -- CorrGamma Loss 1.823e-03
+Epoch 154 -- Loss 2.589e-04
+Validation -- Epoch 154 -- CorrGamma Loss 1.850e-03
+Epoch 155 -- Loss 2.461e-04
+Validation -- Epoch 155 -- CorrGamma Loss 2.326e-03
+Epoch 156 -- Loss 2.778e-04
+Validation -- Epoch 156 -- CorrGamma Loss 1.764e-03
+Epoch 157 -- Loss 3.266e-04
+Validation -- Epoch 157 -- CorrGamma Loss 2.351e-03
+Epoch 158 -- Loss 2.730e-04
+Validation -- Epoch 158 -- CorrGamma Loss 1.854e-03
+Epoch 159 -- Loss 2.463e-04
+Validation -- Epoch 159 -- CorrGamma Loss 2.952e-03
+Epoch 160 -- Loss 2.578e-04
+Validation -- Epoch 160 -- CorrGamma Loss 1.244e-03
+Epoch 161 -- Loss 2.771e-04
+Validation -- Epoch 161 -- CorrGamma Loss 1.637e-03
+Epoch 162 -- Loss 2.675e-04
+Validation -- Epoch 162 -- CorrGamma Loss 2.056e-03
+Epoch 163 -- Loss 2.474e-04
+Validation -- Epoch 163 -- CorrGamma Loss 2.405e-03
+Epoch 164 -- Loss 2.613e-04
+Validation -- Epoch 164 -- CorrGamma Loss 1.569e-03
+Epoch 165 -- Loss 2.736e-04
+Validation -- Epoch 165 -- CorrGamma Loss 1.872e-03
+Epoch 166 -- Loss 3.024e-04
+Validation -- Epoch 166 -- CorrGamma Loss 1.486e-03
+Epoch 167 -- Loss 2.324e-04
+Validation -- Epoch 167 -- CorrGamma Loss 1.389e-03
+Epoch 168 -- Loss 2.626e-04
+Validation -- Epoch 168 -- CorrGamma Loss 1.654e-03
+Epoch 169 -- Loss 2.153e-04
+Validation -- Epoch 169 -- CorrGamma Loss 1.564e-03
+Epoch 170 -- Loss 2.345e-04
+Validation -- Epoch 170 -- CorrGamma Loss 1.865e-03
+Epoch 171 -- Loss 3.777e-04
+Validation -- Epoch 171 -- CorrGamma Loss 1.386e-03
+Epoch 172 -- Loss 5.437e-04
+Validation -- Epoch 172 -- CorrGamma Loss 2.081e-03
+Epoch 173 -- Loss 4.450e-04
+Validation -- Epoch 173 -- CorrGamma Loss 2.877e-03
+Epoch 174 -- Loss 3.337e-04
+Validation -- Epoch 174 -- CorrGamma Loss 1.485e-03
+Epoch 175 -- Loss 2.663e-04
+Validation -- Epoch 175 -- CorrGamma Loss 1.589e-03
+Epoch 176 -- Loss 2.332e-04
+Validation -- Epoch 176 -- CorrGamma Loss 1.876e-03
+Epoch 177 -- Loss 2.554e-04
+Validation -- Epoch 177 -- CorrGamma Loss 1.512e-03
+Epoch 178 -- Loss 2.641e-04
+Validation -- Epoch 178 -- CorrGamma Loss 1.832e-03
+Epoch 179 -- Loss 2.363e-04
+Validation -- Epoch 179 -- CorrGamma Loss 1.170e-03
+Epoch 180 -- Loss 2.505e-04
+Validation -- Epoch 180 -- CorrGamma Loss 1.524e-03
+Epoch 181 -- Loss 2.269e-04
+Validation -- Epoch 181 -- CorrGamma Loss 1.765e-03
+Epoch 182 -- Loss 2.478e-04
+Validation -- Epoch 182 -- CorrGamma Loss 1.164e-03
+Epoch 183 -- Loss 2.605e-04
+Validation -- Epoch 183 -- CorrGamma Loss 1.514e-03
+Epoch 184 -- Loss 2.975e-04
+Validation -- Epoch 184 -- CorrGamma Loss 1.188e-03
+Epoch 185 -- Loss 2.288e-04
+Validation -- Epoch 185 -- CorrGamma Loss 1.177e-03
+Epoch 186 -- Loss 2.009e-04
+Validation -- Epoch 186 -- CorrGamma Loss 1.104e-03
+Epoch 187 -- Loss 3.047e-04
+Validation -- Epoch 187 -- CorrGamma Loss 1.506e-03
+Epoch 188 -- Loss 3.095e-04
+Validation -- Epoch 188 -- CorrGamma Loss 1.141e-03
+Epoch 189 -- Loss 2.553e-04
+Validation -- Epoch 189 -- CorrGamma Loss 1.720e-03
+Epoch 190 -- Loss 2.645e-04
+Validation -- Epoch 190 -- CorrGamma Loss 1.148e-03
+Epoch 191 -- Loss 3.412e-04
+Validation -- Epoch 191 -- CorrGamma Loss 1.900e-03
+Epoch 192 -- Loss 2.473e-04
+Validation -- Epoch 192 -- CorrGamma Loss 1.448e-03
+Epoch 193 -- Loss 3.027e-04
+Validation -- Epoch 193 -- CorrGamma Loss 1.394e-03
+Epoch 194 -- Loss 2.913e-04
+Validation -- Epoch 194 -- CorrGamma Loss 1.467e-03
+Epoch 195 -- Loss 3.519e-04
+Validation -- Epoch 195 -- CorrGamma Loss 2.572e-03
+Epoch 196 -- Loss 2.495e-04
+Validation -- Epoch 196 -- CorrGamma Loss 1.167e-03
+Epoch 197 -- Loss 3.080e-04
+Validation -- Epoch 197 -- CorrGamma Loss 1.259e-03
+Epoch 198 -- Loss 2.574e-04
+Validation -- Epoch 198 -- CorrGamma Loss 1.841e-03
+Epoch 199 -- Loss 3.030e-04
+Validation -- Epoch 199 -- CorrGamma Loss 1.023e-03
+Epoch 200 -- Loss 3.096e-04
+Validation -- Epoch 200 -- CorrGamma Loss 1.873e-03
+Epoch 201 -- Loss 3.084e-04
+Validation -- Epoch 201 -- CorrGamma Loss 1.217e-03
+Epoch 202 -- Loss 2.775e-04
+Validation -- Epoch 202 -- CorrGamma Loss 2.012e-03
+Epoch 203 -- Loss 2.567e-04
+Validation -- Epoch 203 -- CorrGamma Loss 1.281e-03
+Epoch 204 -- Loss 2.350e-04
+Validation -- Epoch 204 -- CorrGamma Loss 2.449e-03
+Epoch 205 -- Loss 3.116e-04
+Validation -- Epoch 205 -- CorrGamma Loss 2.009e-03
+Epoch 206 -- Loss 2.507e-04
+Validation -- Epoch 206 -- CorrGamma Loss 1.758e-03
+Epoch 207 -- Loss 2.258e-04
+Validation -- Epoch 207 -- CorrGamma Loss 3.051e-03
+Epoch 208 -- Loss 4.710e-04
+Validation -- Epoch 208 -- CorrGamma Loss 1.335e-03
+Epoch 209 -- Loss 4.987e-04
+Validation -- Epoch 209 -- CorrGamma Loss 1.851e-03
+Epoch 210 -- Loss 3.403e-04
+Validation -- Epoch 210 -- CorrGamma Loss 1.946e-03
+Epoch 211 -- Loss 2.815e-04
+Validation -- Epoch 211 -- CorrGamma Loss 1.630e-03
+Epoch 212 -- Loss 2.971e-04
+Validation -- Epoch 212 -- CorrGamma Loss 1.327e-03
+Epoch 213 -- Loss 3.112e-04
+Validation -- Epoch 213 -- CorrGamma Loss 1.043e-03
+Epoch 214 -- Loss 2.656e-04
+Validation -- Epoch 214 -- CorrGamma Loss 1.729e-03
+Epoch 215 -- Loss 2.487e-04
+Validation -- Epoch 215 -- CorrGamma Loss 1.243e-03
+Epoch 216 -- Loss 2.414e-04
+Validation -- Epoch 216 -- CorrGamma Loss 1.434e-03
+Epoch 217 -- Loss 2.587e-04
+Validation -- Epoch 217 -- CorrGamma Loss 1.343e-03
+Epoch 218 -- Loss 3.307e-04
+Validation -- Epoch 218 -- CorrGamma Loss 2.290e-03
+Epoch 219 -- Loss 2.870e-04
+Validation -- Epoch 219 -- CorrGamma Loss 1.099e-03
+Epoch 220 -- Loss 2.573e-04
+Validation -- Epoch 220 -- CorrGamma Loss 1.755e-03
+Epoch 221 -- Loss 2.195e-04
+Validation -- Epoch 221 -- CorrGamma Loss 1.246e-03
+Epoch 222 -- Loss 2.813e-04
+Validation -- Epoch 222 -- CorrGamma Loss 1.440e-03
+Epoch 223 -- Loss 2.871e-04
+Validation -- Epoch 223 -- CorrGamma Loss 1.546e-03
+Epoch 224 -- Loss 2.140e-04
+Validation -- Epoch 224 -- CorrGamma Loss 1.486e-03
+Epoch 225 -- Loss 3.792e-04
+Validation -- Epoch 225 -- CorrGamma Loss 1.168e-03
+Epoch 226 -- Loss 2.372e-04
+Validation -- Epoch 226 -- CorrGamma Loss 1.332e-03
+Epoch 227 -- Loss 3.427e-04
+Validation -- Epoch 227 -- CorrGamma Loss 2.352e-03
+Epoch 228 -- Loss 2.498e-04
+Validation -- Epoch 228 -- CorrGamma Loss 1.632e-03
+Epoch 229 -- Loss 2.386e-04
+Validation -- Epoch 229 -- CorrGamma Loss 1.432e-03
+Epoch 230 -- Loss 3.150e-04
+Validation -- Epoch 230 -- CorrGamma Loss 1.240e-03
+Epoch 231 -- Loss 2.095e-04
+Validation -- Epoch 231 -- CorrGamma Loss 1.620e-03
+Epoch 232 -- Loss 2.621e-04
+Validation -- Epoch 232 -- CorrGamma Loss 1.719e-03
+Epoch 233 -- Loss 2.502e-04
+Validation -- Epoch 233 -- CorrGamma Loss 1.657e-03
+Epoch 234 -- Loss 2.385e-04
+Validation -- Epoch 234 -- CorrGamma Loss 2.218e-03
+Epoch 235 -- Loss 2.681e-04
+Validation -- Epoch 235 -- CorrGamma Loss 1.948e-03
+Epoch 236 -- Loss 2.567e-04
+Validation -- Epoch 236 -- CorrGamma Loss 1.237e-03
+Epoch 237 -- Loss 3.799e-04
+Validation -- Epoch 237 -- CorrGamma Loss 2.804e-03
+Epoch 238 -- Loss 2.848e-04
+Validation -- Epoch 238 -- CorrGamma Loss 1.338e-03
+Epoch 239 -- Loss 2.206e-04
+Validation -- Epoch 239 -- CorrGamma Loss 1.175e-03
+Epoch 240 -- Loss 1.789e-04
+Validation -- Epoch 240 -- CorrGamma Loss 1.377e-03
+Epoch 241 -- Loss 2.040e-04
+Validation -- Epoch 241 -- CorrGamma Loss 1.274e-03
+Epoch 242 -- Loss 2.831e-04
+Validation -- Epoch 242 -- CorrGamma Loss 1.247e-03
+Epoch 243 -- Loss 3.397e-04
+Validation -- Epoch 243 -- CorrGamma Loss 1.923e-03
+Epoch 244 -- Loss 2.642e-04
+Validation -- Epoch 244 -- CorrGamma Loss 1.701e-03
+Epoch 245 -- Loss 2.612e-04
+Validation -- Epoch 245 -- CorrGamma Loss 2.143e-03
+Epoch 246 -- Loss 3.140e-04
+Validation -- Epoch 246 -- CorrGamma Loss 1.706e-03
+Epoch 247 -- Loss 3.472e-04
+Validation -- Epoch 247 -- CorrGamma Loss 1.290e-03
+Epoch 248 -- Loss 2.152e-04
+Validation -- Epoch 248 -- CorrGamma Loss 1.865e-03
+Epoch 249 -- Loss 2.492e-04
+Validation -- Epoch 249 -- CorrGamma Loss 2.910e-03
+Epoch 250 -- Loss 3.316e-04
+Validation -- Epoch 250 -- CorrGamma Loss 2.377e-03
+Epoch 251 -- Loss 2.932e-04
+Validation -- Epoch 251 -- CorrGamma Loss 1.462e-03
+Epoch 252 -- Loss 2.169e-04
+Validation -- Epoch 252 -- CorrGamma Loss 2.364e-03
+Epoch 253 -- Loss 2.939e-04
+Validation -- Epoch 253 -- CorrGamma Loss 1.775e-03
+Epoch 254 -- Loss 2.853e-04
+Validation -- Epoch 254 -- CorrGamma Loss 1.246e-03
+Epoch 255 -- Loss 2.474e-04
+Validation -- Epoch 255 -- CorrGamma Loss 1.473e-03
+Epoch 256 -- Loss 2.826e-04
+Validation -- Epoch 256 -- CorrGamma Loss 1.257e-03
+Epoch 257 -- Loss 3.025e-04
+Validation -- Epoch 257 -- CorrGamma Loss 1.262e-03
+Epoch 258 -- Loss 2.043e-04
+Validation -- Epoch 258 -- CorrGamma Loss 1.976e-03
+Epoch 259 -- Loss 2.032e-04
+Validation -- Epoch 259 -- CorrGamma Loss 1.896e-03
+Epoch 260 -- Loss 2.638e-04
+Validation -- Epoch 260 -- CorrGamma Loss 1.936e-03
+Epoch 261 -- Loss 2.924e-04
+Validation -- Epoch 261 -- CorrGamma Loss 1.862e-03
+Epoch 262 -- Loss 1.970e-04
+Validation -- Epoch 262 -- CorrGamma Loss 1.988e-03
+Epoch 263 -- Loss 2.073e-04
+Validation -- Epoch 263 -- CorrGamma Loss 1.378e-03
+Epoch 264 -- Loss 2.416e-04
+Validation -- Epoch 264 -- CorrGamma Loss 1.648e-03
+Epoch 265 -- Loss 2.712e-04
+Validation -- Epoch 265 -- CorrGamma Loss 1.578e-03
+Epoch 266 -- Loss 2.412e-04
+Validation -- Epoch 266 -- CorrGamma Loss 1.606e-03
+Epoch 267 -- Loss 2.665e-04
+Validation -- Epoch 267 -- CorrGamma Loss 1.376e-03
+Epoch 268 -- Loss 2.016e-04
+Validation -- Epoch 268 -- CorrGamma Loss 2.056e-03
+Epoch 269 -- Loss 1.915e-04
+Validation -- Epoch 269 -- CorrGamma Loss 1.192e-03
+Epoch 270 -- Loss 2.372e-04
+Validation -- Epoch 270 -- CorrGamma Loss 1.390e-03
+Epoch 271 -- Loss 1.974e-04
+Validation -- Epoch 271 -- CorrGamma Loss 2.063e-03
+Epoch 272 -- Loss 2.184e-04
+Validation -- Epoch 272 -- CorrGamma Loss 1.932e-03
+Epoch 273 -- Loss 2.674e-04
+Validation -- Epoch 273 -- CorrGamma Loss 2.247e-03
+Epoch 274 -- Loss 2.871e-04
+Validation -- Epoch 274 -- CorrGamma Loss 2.039e-03
+Epoch 275 -- Loss 2.104e-04
+Validation -- Epoch 275 -- CorrGamma Loss 1.692e-03
+Epoch 276 -- Loss 3.414e-04
+Validation -- Epoch 276 -- CorrGamma Loss 2.521e-03
+Epoch 277 -- Loss 4.253e-04
+Validation -- Epoch 277 -- CorrGamma Loss 2.072e-03
+Epoch 278 -- Loss 2.866e-04
+Validation -- Epoch 278 -- CorrGamma Loss 2.601e-03
+Epoch 279 -- Loss 3.211e-04
+Validation -- Epoch 279 -- CorrGamma Loss 1.919e-03
+Epoch 280 -- Loss 2.401e-04
+Validation -- Epoch 280 -- CorrGamma Loss 1.417e-03
+Epoch 281 -- Loss 2.472e-04
+Validation -- Epoch 281 -- CorrGamma Loss 2.023e-03
+Epoch 282 -- Loss 2.234e-04
+Validation -- Epoch 282 -- CorrGamma Loss 1.373e-03
+Epoch 283 -- Loss 2.373e-04
+Validation -- Epoch 283 -- CorrGamma Loss 1.834e-03
+Epoch 284 -- Loss 2.166e-04
+Validation -- Epoch 284 -- CorrGamma Loss 1.782e-03
+Epoch 285 -- Loss 2.626e-04
+Validation -- Epoch 285 -- CorrGamma Loss 2.223e-03
+Epoch 286 -- Loss 2.766e-04
+Validation -- Epoch 286 -- CorrGamma Loss 1.663e-03
+Epoch 287 -- Loss 2.493e-04
+Validation -- Epoch 287 -- CorrGamma Loss 1.648e-03
+Epoch 288 -- Loss 2.149e-04
+Validation -- Epoch 288 -- CorrGamma Loss 1.360e-03
+Epoch 289 -- Loss 1.925e-04
+Validation -- Epoch 289 -- CorrGamma Loss 1.610e-03
+Epoch 290 -- Loss 1.976e-04
+Validation -- Epoch 290 -- CorrGamma Loss 1.692e-03
+Epoch 291 -- Loss 3.115e-04
+Validation -- Epoch 291 -- CorrGamma Loss 1.469e-03
+Epoch 292 -- Loss 3.376e-04
+Validation -- Epoch 292 -- CorrGamma Loss 1.644e-03
+Epoch 293 -- Loss 2.165e-04
+Validation -- Epoch 293 -- CorrGamma Loss 1.346e-03
+Epoch 294 -- Loss 1.887e-04
+Validation -- Epoch 294 -- CorrGamma Loss 1.733e-03
+Epoch 295 -- Loss 2.165e-04
+Validation -- Epoch 295 -- CorrGamma Loss 1.287e-03
+Epoch 296 -- Loss 3.058e-04
+Validation -- Epoch 296 -- CorrGamma Loss 2.563e-03
+Epoch 297 -- Loss 4.075e-04
+Validation -- Epoch 297 -- CorrGamma Loss 1.660e-03
+Epoch 298 -- Loss 3.255e-04
+Validation -- Epoch 298 -- CorrGamma Loss 1.705e-03
+Epoch 299 -- Loss 2.606e-04
+Validation -- Epoch 299 -- CorrGamma Loss 3.131e-03
+Epoch 300 -- Loss 3.861e-04
+Validation -- Epoch 300 -- CorrGamma Loss 1.446e-03

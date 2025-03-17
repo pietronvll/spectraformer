@@ -28,7 +28,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min25_CorrGamma"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min35_GeomLoss_LRSchedule_4cycles"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"
@@ -42,21 +42,63 @@ if __name__ == "__main__":
     
     configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
-
-
-
+    
+    
+    # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
+    cosine_kwargs = []
+    
+    decay_coeff = 0.5
+    
+    init_value = 0.1*configs.learning_rate
+    peak_value = configs.learning_rate
+    warmup_steps = 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps
+    decay_steps = 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps
+    end_value = 0.1*configs.learning_rate
+    
+    for i in range(100):    # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+        cycle_dict = {
+            "init_value": init_value, 
+            "peak_value": peak_value, 
+            "warmup_steps": warmup_steps,
+            "decay_steps": decay_steps,            
+            "end_value": end_value
+        }
+        cosine_kwargs.append(cycle_dict)
+    
+    #                           LR schedule graph
+    #
+    # - - - - - - - - - - - - - - - ___* ___________ - - - - - - - - - - - - - - - - - - - - - - - - > configs.learning_rate (without a schedule it is constant)
+    #|                     _______*/   |            \*___                |                         ^
+    #|            _______*/            |                 \*___           |                         |
+    #|  _______*/                      |                      \*         |                         v
+    #|*/                               |                        \________* - - - - - - - - - - - - - > 
+    #|                                 |                                 |
+    #|           warmup_steps          |                                 |
+    #|<------------------------------->|                                 |--------------------------->
+    #|       Linear warm-up from       |                                 |
+    #|          init_value to          |                                 | Repeat the cycle 100 times
+    #|            peak_value           |    decay_steps - warmup_steps   |
+    #|                                 |<------------------------------->|
+    #|                                 |        Cosine decay from        |
+    #|                                 |          peak_value to          |
+    #|                                 |            end_value            |
+    #|                           decay_steps                             |
+    #|<----------------------------------------------------------------->|
+    
+    learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+    
+    learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+    match learning_rate_decay:
+        case "Multiple cosine decay cycles":
+            tx = optax.adam(learning_rate=learning_rate_fn)
+        case "Constant":
+            tx = optax.adam(learning_rate=configs.learning_rate)
+        case _:
+            raise Exception(f"You didn't specify a learning rate schedule!")
+    
     ####################################################################################################
     # Dataset loading and separation into train/val section
-    ####################################################################################################
-
-    # # Full dataset for training
-    # train_ds = preprocess_dataset(
-    #     xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
-    # )
-
-
-
-    # # Part of dataset for training, part for evaluation
+    #################################################################################################### 
     # Load the full dataset
     full_ds = preprocess_dataset(
         xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
@@ -78,31 +120,29 @@ if __name__ == "__main__":
     print(f"Training samples: {len(train_ds)}, Validation samples: {len(val_ds)}, Total: {len(full_ds)}={len(train_ds)+len(val_ds)}")
     print("Filtered train dataset shape:", train_ds.shape)
     # ####################################################################################################
-    # 
+    # END of "Dataset loading and separation into train/val section"
     # ####################################################################################################
-
-
-
+    
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
     )
-
+    
     dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
     print(f"Train dataset of length {len(train_ds.spectra)} with leaves of shape:")
     for k, v in dummy_example.items():
         print(f"  {k} -> {v.shape}")
-
+    
     model = SpectraFormer(
         num_heads=configs.num_heads,
         num_layers=configs.num_layers,
         embedding_dim=configs.embedding_dim,
     )
-
+    
     # RNG Keys
     root_key = jax.random.key(seed=configs.root_rng_seed)
     main_key, params_key, dropout_key = jax.random.split(key=root_key, num=3)
     window_RNG_key = jax.random.split(main_key, num=1)[0]
-
+    
     # Model Initialization
     variables = model.init(
         params_key,
@@ -111,17 +151,19 @@ if __name__ == "__main__":
         dummy_example["mask"],
         training=False,
     )
-
+    
     state = TrainState.create(
         apply_fn=jax.jit(
             model.apply, static_argnames=("training", "capture_intermediates")
         ),
         params=variables["params"],
-        tx=optax.adam(configs.learning_rate),
+        tx=tx
     )
-
+    
     # # Checkpointing: load from checkpoint and resume training if available
-    ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=5)
+    ckpt_options = ocp.CheckpointManagerOptions(
+        # max_to_keep=5
+        )
     if not epath.Path(ckptdir / configs.tag).exists():
         epath.Path(ckptdir / configs.tag).mkdir()
         epath.Path(ckptdir / configs.tag / ".tmp").touch()
@@ -134,7 +176,7 @@ if __name__ == "__main__":
     # After initialization remove the dummy file
     if epath.Path(ckptdir / configs.tag / ".tmp").exists():
         epath.Path(ckptdir / configs.tag / ".tmp").rmtree()
-
+    
     if len(ckpt_manager.all_steps()) > 0:
         state = ckpt_manager.restore(
             ckpt_manager.latest_step(), args=ocp.args.StandardRestore(state)
@@ -142,12 +184,21 @@ if __name__ == "__main__":
         print(f"Resuming training from step {state.step}.")
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scratch.")
-
+    
     metric_writer = SummaryWriter(logdir / configs.tag)
     rng_streams = {"dropout": dropout_key}
+    mean_streams = {"mean": "Not specified" if not hasattr(configs, 'mean') else configs.mean}
     # early_stop = EarlyStopping(min_delta=1e-3, patience=2)
     train_metrics = []
     val_metrics = []
+    
+    # This is for drawing on TensorBoard both train and validation losses on a single graph
+    layout = {
+        "my_layout": {
+            "loss": ["Multiline", ["train/loss", "val/val_corrected_gamma_loss"]],
+            },
+        }
+    metric_writer.add_custom_scalars(layout)
     
     ####################################################################################################
     # Training & metrics calculation section
@@ -157,13 +208,13 @@ if __name__ == "__main__":
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
         # Training
         state, epoch_train_metrics = train_epoch(
-            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key
+            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
         )
         train_metrics.append(epoch_train_metrics)
         
         # Validation
         state, epoch_val_metrics = validation_epoch(
-            state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager
+            state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
         )
         val_metrics.append(epoch_val_metrics)
         
@@ -174,6 +225,7 @@ if __name__ == "__main__":
         # if early_stop.should_stop:
         #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
         #     break
+    
     # Need to save metrics to the writer
     train_metrics = stack_forest(train_metrics)
     val_metrics = stack_forest(val_metrics)

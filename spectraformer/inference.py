@@ -35,12 +35,13 @@ def plot_results(predictions):
         if data.ndim > 1:
             data = data.T
         label = data_str.replace("_", " ").capitalize()
-        ax.plot(wave_number, data, label=label)
+        ax.plot(wave_number, data, '-o', markersize=1.3, lw=1, label=label)
     if data.ndim > 1:
         print(
             f"Warning: found {data.shape[1]} predicted spectra in the provided dictionary. The plot might be crowded."
         )
     ax.legend(frameon=False)
     ax.margins(x=0)
+    ax.grid(visible=True, which='both', axis='both')
     # ax.set_ylim(-0.1, 1.05)
     return fig, ax

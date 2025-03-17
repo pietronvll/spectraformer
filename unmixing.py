@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+from scipy.signal import savgol_filter
 import jax
 print("JAX devices: ", jax.devices())
 import ml_confs
@@ -29,10 +30,20 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min23_CorrGamma"  # CHOOSE ONE (.yaml file should exist)
+# ####################################################################################################
+# Section of Parameters choise for unmixing
+# ####################################################################################################
+
+model_tag = "min34_GeomLoss_LRSchedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
+# Savgol filter parameters. I find 100 and 9 the best, but there is nothing behind it, it's arbitrary
+window_length = 100
+polyorder = 9
 
+# ####################################################################################################
+# END of Section of Parameters choise for unmixing
+# ####################################################################################################
 
 configsdir = maindir / "configs"
 configsdir.mkdir(parents=True, exist_ok=True)
@@ -46,10 +57,36 @@ mixdir.mkdir(parents=True, exist_ok=True)
 unmixdir = datadir / "unmixed"
 unmixdir.mkdir(parents=True, exist_ok=True)
 
+unmixdir_model = unmixdir / model_tag
+unmixdir_model.mkdir(parents=True, exist_ok=True)
+
 def load_model(
     configs,
     dataset
     ):
+    # For unmixing this schedule is important to keep this as a model parameter. It is necessary for checkpoint matching
+    
+    # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
+    cosine_kwargs = []
+    for i in range(100):    # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+        cycle_dict = {
+            "init_value": 0.1*configs.learning_rate, 
+            "peak_value": configs.learning_rate, 
+            "warmup_steps": 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps,
+            "decay_steps": 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps,            
+            "end_value": 0.1*configs.learning_rate
+        }
+        cosine_kwargs.append(cycle_dict)
+    learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+    
+    learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+    match learning_rate_decay:
+        case "Multiple cosine decay cycles":
+            tx = optax.adam(learning_rate=learning_rate_fn)
+        case "Constant":
+            tx = optax.adam(learning_rate=configs.learning_rate)
+        case _:
+            raise Exception(f"You didn't specify a learning rate schedule!")
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
@@ -77,7 +114,7 @@ def load_model(
     state = TrainState.create(
         apply_fn=jax.jit(model.apply, static_argnames=("training",)),
         params=variables["params"],
-        tx=optax.adam(configs.learning_rate),
+        tx=tx,
     )
     
     ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=5, read_only=True)
@@ -127,13 +164,17 @@ def prediction_fn(
 
 if __name__ == "__main__":
     
+    # Config reading
     configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
     
+    # Loading a train dataset to initialize model
     train_ds = preprocess_dataset(xr.load_dataarray(datadir / f"{configs.train_dataset}.nc"))
     
+    # Initializing a model
     state = load_model(configs, dataset=train_ds)
     
+    # Loop over a folder with mixed spectra we want to process
     for elem in epath.Path(mixdir).iterdir():
         # Loading dataset
         dataset_elem = preprocess_dataset( xr.load_dataarray(elem) )
@@ -162,8 +203,13 @@ if __name__ == "__main__":
             arr_predicted_spectra[i, :] = np.asarray(jax.device_get(d["predicted_spectra"]))
             arr_predicted_difference[i, :] = np.asarray(jax.device_get(d["predicted_difference"]))
 
+        # 3.5) Filter the arrays before building the xarray.Dataset
+        filtered_spectra = savgol_filter(arr_spectra, window_length=window_length, polyorder=polyorder, axis=1)
+        filtered_predicted_difference = savgol_filter(arr_predicted_difference, window_length=window_length, polyorder=polyorder, axis=1)
+
         # For wave_number, we just take from the first dictionary (assuming identical for all)
-        arr_wave_number[:] = np.asarray(jax.device_get(predictions[0]["wave_number"]))
+        # Also un-normalizing wave_number
+        arr_wave_number[:] = np.asarray(jax.device_get(predictions[0]["wave_number"])) * 800 + 2000
 
         # 4) Build an xarray.Dataset with dimensions ("sample", "wave_number")
         ds = xr.Dataset(
@@ -173,6 +219,9 @@ if __name__ == "__main__":
                 "mask": (("sample", "wave_number"), arr_mask),
                 "predicted_spectra": (("sample", "wave_number"), arr_predicted_spectra),
                 "predicted_difference": (("sample", "wave_number"), arr_predicted_difference),
+                
+                "filtered_spectra": (("sample", "wave_number"), filtered_spectra),
+                "filtered_predicted_difference": (("sample", "wave_number"), filtered_predicted_difference),
             },
             coords={
                 "sample": np.arange(N),
@@ -182,7 +231,7 @@ if __name__ == "__main__":
 
         # 5) Save the dataset to NetCDF
         # Saving predictions
-        ds.to_netcdf(unmixdir / f"unmixed_by_{model_tag}_{elem.name}", engine="netcdf4")
+        ds.to_netcdf(unmixdir_model / f"unmixed_by_{model_tag}_{elem.name}", engine="netcdf4")
         print(f"Saved unmixed_by_{model_tag}_{elem.name}")
     
     print('Unmixing done.')
