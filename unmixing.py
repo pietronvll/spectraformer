@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from scipy.signal import savgol_filter
 import jax
 print("JAX devices: ", jax.devices())
@@ -34,12 +35,12 @@ datadir = maindir / "data"
 # Section of Parameters choise for unmixing
 # ####################################################################################################
 
-model_tag = "min34_GeomLoss_LRSchedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min41_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 # Savgol filter parameters. I find 100 and 9 the best, but there is nothing behind it, it's arbitrary
 window_length = 100
-polyorder = 9
+polyorder = 3
 
 # ####################################################################################################
 # END of Section of Parameters choise for unmixing
@@ -68,15 +69,50 @@ def load_model(
     
     # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
     cosine_kwargs = []
-    for i in range(100):    # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+    
+    init_value = 0.1*configs.learning_rate
+    peak_value = configs.learning_rate
+    warmup_steps = 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps
+    decay_steps = 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps
+    decline_coeff = 1 if not hasattr(configs, 'decline_coeff') else configs.decline_coeff
+    
+    for i in range(100 if not hasattr(configs, 'num_cycles') else configs.num_cycles):
+        end_value = decline_coeff * init_value
+        # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
         cycle_dict = {
-            "init_value": 0.1*configs.learning_rate, 
-            "peak_value": configs.learning_rate, 
-            "warmup_steps": 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps,
-            "decay_steps": 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps,            
-            "end_value": 0.1*configs.learning_rate
+            "init_value": init_value, 
+            "peak_value": peak_value, 
+            "warmup_steps": warmup_steps,
+            "decay_steps": decay_steps,            
+            "end_value": end_value
         }
         cosine_kwargs.append(cycle_dict)
+        init_value = end_value
+        peak_value *= decline_coeff
+    
+    #                           LR schedule graph
+    #
+    # - - - - - - - - - - - - - - - ___* ___________ - - - - - - - - - - - - - - - - - - - - - - - - > configs.learning_rate (without a schedule it is constant)
+    #|                     _______*/   |            \*___                |                         ^
+    #|            _______*/            |                 \*___           |                         |
+    #|  _______*/                      |                      \*         |                         v
+    #|*/                               |                        \________* - - - - - - - - - - - - - > 
+    #|                                 |                                 |
+    #|           warmup_steps          |                                 |
+    #|<------------------------------->|                                 |--------------------------->
+    #|       Linear warm-up from       |                                 |
+    #|          init_value to          |                                 | Repeat the cycle 100 times
+    #|            peak_value           |    decay_steps - warmup_steps   |
+    #|                                 |<------------------------------->|
+    #|                                 |        Cosine decay from        |
+    #|                                 |          peak_value to          |
+    #|                                 |            end_value            |
+    #|                           decay_steps                             |
+    #|<----------------------------------------------------------------->|
+    
+    cosine_kwargs_df = pd.DataFrame(cosine_kwargs)
+    print(cosine_kwargs_df.to_markdown())
+    
     learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
     
     learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')

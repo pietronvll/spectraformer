@@ -57,9 +57,11 @@ for elem in epath.Path(datasets_path).iterdir():
 @st.cache_resource
 def load_model(
     model_tag: str, 
-    dataset_tag: str,    
+    dataset_tag: str,
+    desired_step: int,
     mask_start_tag: int = 1700,    
-    mask_end_tag: int = 2500    
+    mask_end_tag: int = 2500,
+    step_choise_tag: str = 'Latest'
     ):
     
     st.write("Loading Checkpoint")
@@ -128,13 +130,20 @@ def load_model(
     )
     
     st.write("Restoring Weights")
-    # desired_step = 49590
-    # Restore checkpoint
-    state = ckpt_manager.restore(
-        # desired_step,
-        ckpt_manager.latest_step(), 
-        args=ocp.args.StandardRestore(state)
-    )
+    match step_choise_tag:
+        case 'Latest':
+            state = ckpt_manager.restore(
+            ckpt_manager.latest_step(), 
+            args=ocp.args.StandardRestore(state)
+            )
+        case 'Desired':
+            state = ckpt_manager.restore(
+            desired_step, 
+            args=ocp.args.StandardRestore(state)
+            )
+        case _:
+            st.write("SOMETHING WENT WRONG")
+    
     # Loading Databases
     test_data = list(batch_sampler(test_ds, mask_windows, shuffle=False, batch_size=1))
     # Predict
@@ -164,6 +173,14 @@ current_mask_end_tag = st.selectbox("Select right window boundary:", available_m
 current_model_tag = st.selectbox("Select model (from a checkpoint):", available_models, index=None)
 
 
+step_choise_tags = ['Latest', 'Desired']
+current_step_choise_tag = st.selectbox("Choose a step to be:", step_choise_tags, index=None)
+
+if current_step_choise_tag == 'Desired':
+    current_desired_step = st.number_input("Insert a step number", value=17880)
+    st.write("The chosen number is ", current_desired_step)
+else:
+    current_desired_step = 0
 
 
 if current_model_tag is not None:
@@ -172,8 +189,10 @@ if current_model_tag is not None:
         state, spectraformer_predictions, tabulate_fn, mask_windows = load_model(
             model_tag=current_model_tag,
             dataset_tag=current_dataset_tag,
+            desired_step=current_desired_step,
             mask_start_tag=current_mask_start_tag,
-            mask_end_tag=current_mask_end_tag
+            mask_end_tag=current_mask_end_tag,
+            step_choise_tag=current_step_choise_tag
         )
     
     # Predictions exploration on a graph

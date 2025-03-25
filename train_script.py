@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import jax
 print("JAX devices: ", jax.devices())
+num_devices = jax.device_count()
+print("Number of devices: ", num_devices)
 import ml_confs
 import optax
 import orbax.checkpoint as ocp
@@ -14,7 +17,7 @@ from tensorboardX import SummaryWriter
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
-from spectraformer.train import train_epoch, validation_epoch
+from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap
 
 jax.config.update("jax_debug_nans", True)
 
@@ -28,7 +31,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min35_GeomLoss_LRSchedule_4cycles"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min42_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 configsdir = maindir / "configs"
@@ -47,15 +50,15 @@ if __name__ == "__main__":
     # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
     cosine_kwargs = []
     
-    decay_coeff = 0.5
-    
     init_value = 0.1*configs.learning_rate
     peak_value = configs.learning_rate
     warmup_steps = 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps
     decay_steps = 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps
-    end_value = 0.1*configs.learning_rate
+    decline_coeff = 1 if not hasattr(configs, 'decline_coeff') else configs.decline_coeff
     
-    for i in range(100):    # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+    for i in range(100 if not hasattr(configs, 'num_cycles') else configs.num_cycles):
+        end_value = decline_coeff * init_value
+        # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
         cycle_dict = {
             "init_value": init_value, 
             "peak_value": peak_value, 
@@ -64,6 +67,8 @@ if __name__ == "__main__":
             "end_value": end_value
         }
         cosine_kwargs.append(cycle_dict)
+        init_value = end_value
+        peak_value *= decline_coeff
     
     #                           LR schedule graph
     #
@@ -84,6 +89,9 @@ if __name__ == "__main__":
     #|                                 |            end_value            |
     #|                           decay_steps                             |
     #|<----------------------------------------------------------------->|
+    
+    cosine_kwargs_df = pd.DataFrame(cosine_kwargs)
+    print(cosine_kwargs_df.to_markdown())
     
     learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
     
@@ -160,9 +168,11 @@ if __name__ == "__main__":
         tx=tx
     )
     
-    # # Checkpointing: load from checkpoint and resume training if available
+    # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(
+        #----------------------------------------------------------------------------------------------------#
         # max_to_keep=5
+        #----------------------------------------------------------------------------------------------------#
         )
     if not epath.Path(ckptdir / configs.tag).exists():
         epath.Path(ckptdir / configs.tag).mkdir()
@@ -203,22 +213,51 @@ if __name__ == "__main__":
     ####################################################################################################
     # Training & metrics calculation section
     ####################################################################################################
+    
     for epoch in range(configs.num_epochs):
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
-        # Training
-        state, epoch_train_metrics = train_epoch(
-            state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
-        )
+        
+        ##### OLD one-GPU code #####
+        # # Training
+        # state, epoch_train_metrics = train_epoch(
+        #     state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
+        # )
+        # train_metrics.append(epoch_train_metrics)
+        
+        # # Validation
+        # state, epoch_val_metrics = validation_epoch(
+        #     state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
+        # )
+        # val_metrics.append(epoch_val_metrics)
+        
+        state, epoch_train_metrics = train_epoch_pmap(
+            state=state, 
+            epoch=epoch, 
+            train_ds=train_ds,
+            num_devices=num_devices, 
+            configs=configs, 
+            rng_streams=rng_streams, 
+            metric_writer=metric_writer, 
+            ckpt_manager=ckpt_manager, 
+            window_RNG_key=window_RNG_key, 
+            mean_streams=mean_streams
+            )
         train_metrics.append(epoch_train_metrics)
         
-        # Validation
-        state, epoch_val_metrics = validation_epoch(
-            state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
-        )
+        state, epoch_val_metrics = validation_epoch_pmap(
+            state=state, 
+            epoch=epoch, 
+            val_ds=val_ds,
+            num_devices=num_devices, 
+            configs=configs, 
+            rng_streams=rng_streams, 
+            metric_writer=metric_writer, 
+            ckpt_manager=ckpt_manager, 
+            window_RNG_key=window_RNG_key, 
+            mean_streams=mean_streams
+            )
         val_metrics.append(epoch_val_metrics)
-        
-        
         
         # # Early stop (?)
         # early_stop = early_stop.update(metrics["loss"])
