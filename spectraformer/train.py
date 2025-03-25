@@ -21,18 +21,39 @@ def log_gpu_usage(gpustat_entry, step, writer):
         step,
     )
 
-def shard_batch(batch, num_devices):
-    total_size = batch["masked_spectra"].shape[0]
-    per_device = total_size // num_devices  # Ensure divisibility
-    truncated_size = per_device * num_devices  # Compute new valid size
+def shard_batch(batch: Batch, num_devices: int) -> Batch:
+    """Shard a batch across devices, handling constant arrays properly"""
+    batch_size = batch['spectra'].shape[0]
+    sharded_batch = {}
     
-    batch_sharded = {}
     for k, v in batch.items():
-        v = v[:truncated_size]  # Truncate excess samples
-        new_shape = (num_devices, per_device) + v.shape[1:]
-        batch_sharded[k] = v.reshape(new_shape)
+        if k in ['wave_number', 'mask']:
+            # Ensure constant arrays have at least 2 dims
+            if v.ndim == 1:  # mask (812,) → (1, 812)
+                v_expanded = jnp.expand_dims(v, axis=0)
+            elif v.ndim == 2:  # wave_number (812, 1) → (1, 812, 1)
+                v_expanded = jnp.expand_dims(v, axis=0)
+            else:
+                v_expanded = v
+            
+            sharded_batch[k] = jax.device_put_replicated(v_expanded, jax.devices())
+        else:
+            if v.shape[0] != batch_size:
+                raise ValueError(f"Inconsistent batch shape for {k}: {v.shape}")
+            
+            # Ensure we're not trying to shard scalars
+            if v.ndim == 0:
+                v = jnp.expand_dims(v, axis=0)  # Convert scalar to (1,)
+            
+            sharded_batch[k] = jax.device_put_sharded(
+                jnp.split(v, num_devices), jax.devices())
     
-    return batch_sharded
+    for k, v in sharded_batch.items():
+        if isinstance(v, (jax.Array, np.ndarray)):
+            if v.ndim == 0:
+                raise ValueError(f"Sharded batch field {k} is scalar! Shape: {v.shape}")
+    
+    return Batch(**sharded_batch)
 
 
 @partial(jax.jit, static_argnames=("configs_mean",))
@@ -401,7 +422,7 @@ def validation_epoch(
 @partial(
     jax.pmap,
     axis_name="devices", 
-    static_broadcasted_argnums=(3,)  # 'configs_mean' is static
+    static_broadcasted_argnums=(4,)  # 'configs_mean' is static
 )
 def train_step_pmap(
     state: TrainState, 
@@ -478,13 +499,24 @@ def train_step_pmap(
     # single parameter update
     new_state = state.apply_gradients(grads=final_grads)
     
+    
+    # ========== SHAPE SAFETY CHECKS ==========
+    jax.debug.print("global_loss shape: {}", global_loss.shape)  # Should be (1,)
+    jax.debug.print("grad_min shape: {}", grad_min.shape)        # Should be (1,)
+    
+    # Convert all scalar metrics to rank-1 tensors
     train_metrics = {
-        "train_loss": global_loss,
-        "grad_min": grad_min,
-        "grad_mean": grad_mean,
-        "grad_median": grad_median,
-        "grad_max": grad_max
-        }
+        "train_loss": jnp.expand_dims(global_loss, 0),  # shape (1,) instead of ()
+        "grad_min": jnp.expand_dims(grad_min, 0),
+        "grad_mean": jnp.expand_dims(grad_mean, 0),
+        "grad_median": jnp.expand_dims(grad_median, 0),
+        "grad_max": jnp.expand_dims(grad_max, 0)
+    }
+    # Verify all metrics are rank-1
+    for k, v in train_metrics.items():
+        if v.ndim == 0:
+            raise ValueError(f"Metric {k} is scalar! Shape: {v.shape}")
+    
     return new_state, train_metrics
 
 
@@ -494,11 +526,12 @@ def train_step_pmap(
 @partial(
     jax.pmap,
     axis_name="devices",
-    static_broadcasted_argnums=(3,)
+    static_broadcasted_argnums=(4,)
 )
 def validation_step_pmap(
     state: TrainState, 
-    batch, dropout_key, 
+    batch, 
+    dropout_key, 
     configs_mean, 
     num_devices
 ):
@@ -549,8 +582,13 @@ def validation_step_pmap(
     global_loss = jnp.exp(mean_log_local)
     
     val_metrics = {
-        "val_corrected_gamma_loss": global_loss
+        "val_corrected_gamma_loss": jnp.expand_dims(global_loss, 0)  # shape (1,)
         }
+    
+    # Validation shape check
+    if val_metrics["val_loss"].ndim == 0:
+        raise ValueError("Validation loss became scalar!")
+    
     return state, val_metrics
 
 def train_epoch_pmap(
@@ -609,13 +647,17 @@ def train_epoch_pmap(
 
         metrics_list.append(batch_metrics)
 
-    # Convert metrics_list to an array of shape [num_steps, num_devices, ...]
-    # and aggregate them. For example:
-    stacked_metrics = stack_forest(metrics_list)
-    # shape: (num_steps, num_devices, ...) or something similar
-
-    # 4) Average metrics across epoch
-    avg_metrics = jax.tree_map(jnp.mean, stacked_metrics)
+    # PROPER AGGREGATION:
+    avg_metrics = {
+        k: jnp.mean(jnp.stack([m[k] for m in metrics_list]))
+        for k in metrics_list[0].keys()
+    }
+    
+    # Verify final shapes
+    for k, v in avg_metrics.items():
+        if v.ndim != 0:
+            jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
+    
 
     print(f"Epoch {epoch+1} -- Loss {avg_metrics['train_loss']:.3e}")
 
@@ -627,7 +669,7 @@ def train_epoch_pmap(
             log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
         ckpt_manager.save(state.step[0], state)  # use state.step[0] for the integer
 
-    return state, stacked_metrics
+    return state, avg_metrics
 
 def validation_epoch_pmap(
     state, 
@@ -663,7 +705,7 @@ def validation_epoch_pmap(
         dropout_sharded = jax.random.split(rng_streams["dropout"], num_devices)
 
         # 3) Run pmapped train step
-        state, batch_metrics = validation_step_pmap(
+        _, batch_metrics = validation_step_pmap(
             state, 
             batch_sharded, 
             dropout_sharded, 
@@ -674,13 +716,17 @@ def validation_epoch_pmap(
 
         metrics_list.append(batch_metrics)
 
-    # Convert metrics_list to an array of shape [num_steps, num_devices, ...]
-    # and aggregate them. For example:
-    stacked_metrics = stack_forest(metrics_list)
-    # shape: (num_steps, num_devices, ...) or something similar
-
-    # 4) Average metrics across epoch
-    avg_metrics = jax.tree_map(jnp.mean, stacked_metrics)
+    # PROPER AGGREGATION:
+    avg_metrics = {
+        k: jnp.mean(jnp.stack([m[k] for m in metrics_list]))
+        for k in metrics_list[0].keys()
+    }
+    
+    # Verify final shapes
+    for k, v in avg_metrics.items():
+        if v.ndim != 0:
+            jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
+    
 
     print(f"Validation -- Epoch {epoch + 1} -- ValCorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e}")
     
@@ -692,4 +738,4 @@ def validation_epoch_pmap(
             log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
         ckpt_manager.save(state.step[0], state)  # use state.step[0] for the integer
 
-    return state, stacked_metrics
+    return state, avg_metrics

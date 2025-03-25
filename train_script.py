@@ -1,19 +1,22 @@
 from pathlib import Path
+from etils import epath
 
 import numpy as np
 import pandas as pd
+
 import jax
 print("JAX devices: ", jax.devices())
 num_devices = jax.device_count()
 print("Number of devices: ", num_devices)
+
 import ml_confs
 import optax
 import orbax.checkpoint as ocp
 import xarray as xr
-from etils import epath
 from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
 from tensorboardX import SummaryWriter
+from dataclasses import replace
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
@@ -34,6 +37,8 @@ datadir = maindir / "data"
 model_tag = "min42_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
+training_regime = "All devices" # one from ["One device", "All devices"]
+
 configsdir = maindir / "configs"
 configsdir.mkdir(parents=True, exist_ok=True)
 
@@ -46,6 +51,8 @@ if __name__ == "__main__":
     configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
     
+    if training_regime=="All devices" and configs.batch_size % num_devices !=0:
+        raise Exception(f"Sharding requires batch size divisibility by the number of devices. Change it accordingly (preferably to 24).")
     
     # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
     cosine_kwargs = []
@@ -218,46 +225,53 @@ if __name__ == "__main__":
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
         
-        ##### OLD one-GPU code #####
-        # # Training
-        # state, epoch_train_metrics = train_epoch(
-        #     state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
-        # )
-        # train_metrics.append(epoch_train_metrics)
-        
-        # # Validation
-        # state, epoch_val_metrics = validation_epoch(
-        #     state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
-        # )
-        # val_metrics.append(epoch_val_metrics)
-        
-        state, epoch_train_metrics = train_epoch_pmap(
-            state=state, 
-            epoch=epoch, 
-            train_ds=train_ds,
-            num_devices=num_devices, 
-            configs=configs, 
-            rng_streams=rng_streams, 
-            metric_writer=metric_writer, 
-            ckpt_manager=ckpt_manager, 
-            window_RNG_key=window_RNG_key, 
-            mean_streams=mean_streams
-            )
-        train_metrics.append(epoch_train_metrics)
-        
-        state, epoch_val_metrics = validation_epoch_pmap(
-            state=state, 
-            epoch=epoch, 
-            val_ds=val_ds,
-            num_devices=num_devices, 
-            configs=configs, 
-            rng_streams=rng_streams, 
-            metric_writer=metric_writer, 
-            ckpt_manager=ckpt_manager, 
-            window_RNG_key=window_RNG_key, 
-            mean_streams=mean_streams
-            )
-        val_metrics.append(epoch_val_metrics)
+        match training_regime:
+            case "One device":
+                
+                # Training
+                state, epoch_train_metrics = train_epoch(
+                    state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
+                )
+                train_metrics.append(epoch_train_metrics)
+                
+                # Validation
+                state, epoch_val_metrics = validation_epoch(
+                    state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
+                )
+                val_metrics.append(epoch_val_metrics)
+                
+            case "All devices":
+                
+                state, epoch_train_metrics = train_epoch_pmap(
+                    state=state, 
+                    epoch=epoch, 
+                    train_ds=train_ds,
+                    num_devices=num_devices, 
+                    configs=configs, 
+                    rng_streams=rng_streams, 
+                    metric_writer=metric_writer, 
+                    ckpt_manager=ckpt_manager, 
+                    window_RNG_key=window_RNG_key, 
+                    mean_streams=mean_streams
+                    )
+                train_metrics.append(epoch_train_metrics)
+                
+                state, epoch_val_metrics = validation_epoch_pmap(
+                    state=state, 
+                    epoch=epoch, 
+                    val_ds=val_ds,
+                    num_devices=num_devices, 
+                    configs=configs, 
+                    rng_streams=rng_streams, 
+                    metric_writer=metric_writer, 
+                    ckpt_manager=ckpt_manager, 
+                    window_RNG_key=window_RNG_key, 
+                    mean_streams=mean_streams
+                    )
+                val_metrics.append(epoch_val_metrics)
+                
+            case _:
+                raise Exception(f"Specify training_regime correctly!")
         
         # # Early stop (?)
         # early_stop = early_stop.update(metrics["loss"])
