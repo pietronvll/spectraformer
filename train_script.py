@@ -5,8 +5,9 @@ import numpy as np
 import pandas as pd
 
 import jax
+import jax.numpy as jnp
 print("JAX devices: ", jax.devices())
-num_devices = jax.device_count()
+num_devices = len(jax.devices())
 print("Number of devices: ", num_devices)
 
 import ml_confs
@@ -45,8 +46,19 @@ configsdir.mkdir(parents=True, exist_ok=True)
 config_file_name = f"configs_{model_tag}.yaml"
 config_file_path = configsdir / config_file_name
 
+# Test with simplest possible pmap function
+@jax.pmap
+def dummy_pmap(x):
+    jax.debug.print("DUMMY PMAP WORKING - input shape: {}", x.shape)
+    return x + 1
 
 if __name__ == "__main__":
+        
+
+    # Try with known-good input
+    dummy_input = jnp.ones((jax.device_count(), 1))  # (4,1) for 4 devices
+    print("Dummy pmap result:", dummy_pmap(dummy_input))
+    
     
     configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
@@ -97,19 +109,52 @@ if __name__ == "__main__":
     #|                           decay_steps                             |
     #|<----------------------------------------------------------------->|
     
-    cosine_kwargs_df = pd.DataFrame(cosine_kwargs)
-    print(cosine_kwargs_df.to_markdown())
+    def create_rank_safe_adam(configs, cosine_kwargs):
+        """Creates an Adam optimizer"""
+        learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+        
+        match learning_rate_decay:
+            case "Multiple cosine decay cycles":
+                lr_schedule = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+                base_optimizer = optax.adam(learning_rate=lr_schedule)
+            case "Constant":
+                base_optimizer = optax.adam(learning_rate=configs.learning_rate)
+            case _:
+                raise ValueError(f"Unknown schedule: {learning_rate_decay}")
+
+        # Wrapper to ensure rank-safe states
+        def init_fn(params):
+            opt_state = base_optimizer.init(params)
+            # Convert scalar counts to rank-1
+            return jax.tree_map(
+                lambda x: jnp.expand_dims(x, 0) if hasattr(x, 'ndim') and x.ndim == 0 else x,
+                opt_state
+            )
+        
+        def update_fn(grads, state, params):
+            updates, new_state = base_optimizer.update(grads, state, params)
+            new_params = optax.apply_updates(params, updates)
+            # Maintain rank-1 for scalar states
+            new_state = jax.tree_map(
+                lambda x: jnp.expand_dims(x, 0) if hasattr(x, 'ndim') and x.ndim == 0 else x,
+                new_state
+            )
+            return new_params, new_state
+        
+        return optax.GradientTransformation(init_fn, update_fn)
     
-    learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+    tx = create_rank_safe_adam(configs, cosine_kwargs)
     
-    learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
-    match learning_rate_decay:
-        case "Multiple cosine decay cycles":
-            tx = optax.adam(learning_rate=learning_rate_fn)
-        case "Constant":
-            tx = optax.adam(learning_rate=configs.learning_rate)
-        case _:
-            raise Exception(f"You didn't specify a learning rate schedule!")
+    
+    # learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+    # match learning_rate_decay:
+    #     case "Multiple cosine decay cycles":
+    #         learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+    #         tx = optax.adam(learning_rate=learning_rate_fn)
+    #     case "Constant":
+    #         tx = optax.adam(learning_rate=configs.learning_rate)
+    #     case _:
+    #         raise Exception(f"You didn't specify a learning rate schedule!")
     
     ####################################################################################################
     # Dataset loading and separation into train/val section
@@ -164,7 +209,7 @@ if __name__ == "__main__":
         dummy_example["masked_spectra"][0],
         dummy_example["wave_number"],
         dummy_example["mask"],
-        training=False,
+        training=True,
     )
     
     state = TrainState.create(
@@ -246,7 +291,6 @@ if __name__ == "__main__":
                     state=state, 
                     epoch=epoch, 
                     train_ds=train_ds,
-                    num_devices=num_devices, 
                     configs=configs, 
                     rng_streams=rng_streams, 
                     metric_writer=metric_writer, 
@@ -260,7 +304,6 @@ if __name__ == "__main__":
                     state=state, 
                     epoch=epoch, 
                     val_ds=val_ds,
-                    num_devices=num_devices, 
                     configs=configs, 
                     rng_streams=rng_streams, 
                     metric_writer=metric_writer, 
