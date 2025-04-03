@@ -196,6 +196,7 @@ if __name__ == "__main__":
         num_heads=configs.num_heads,
         num_layers=configs.num_layers,
         embedding_dim=configs.embedding_dim,
+        dropout_rate=configs.dropout_rate
     )
     
     # RNG Keys

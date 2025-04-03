@@ -415,21 +415,20 @@ def validation_epoch(
     return state, metrics
 
 # ==========================
-#     MULTI-DEVICE TRAIN STEP
+#     MULTI-DEVICE TRAIN STEP WITH ARITHMETIC LOSS
 # ==========================
-@partial(
-    jax.pmap,
-    axis_name="devices",
-    static_broadcasted_argnums=(3,)  # Using indices for static args
-)
-def train_step_pmap(
+# @partial(
+#     jax.pmap,
+#     axis_name="batch"
+# )
+@jax.jit
+def train_step_pmap_arithmetic(
     state: TrainState,
     batch,
-    dropout_key,
-    configs_mean: str,    # Static (string)
+    dropout_key
 ):
     # Get device count dynamically
-    num_devices = jax.lax.psum(1, axis_name="devices")
+    num_devices = len(jax.devices())
     # This runs during compilation
     print("COMPILATION TRACE (regular print)") 
     
@@ -437,22 +436,18 @@ def train_step_pmap(
     jax.debug.print("EXECUTION TRACE (debug.print)")
     
     # Force an error if you don't see prints
-    if not hasattr(train_step_pmap, "_seen_first_execution"):
+    if not hasattr(train_step_pmap_arithmetic, "_seen_first_execution"):
         jax.debug.print("FIRST EXECUTION")
-        train_step_pmap._seen_first_execution = True
+        train_step_pmap_arithmetic._seen_first_execution = True
     
     jax.debug.print("Input shapes - spectra: {}, mask: {}", batch['spectra'].shape, batch['mask'].shape)
     
     # Because 'state.step' is replicated, use state.step[0] for fold_in
     dropout_train_key = jax.random.fold_in(dropout_key, state.step[0])
     
-    def my_geometric_mean(loss, eps=1e-8):
-            non_negative = abs(loss)
-            clipped = jnp.clip(non_negative, eps)
-            mean_log = jnp.mean(jnp.log(clipped))
-            return jnp.exp(mean_log)
     
     # Local loss per device function
+    
     def corrected_gamma_loss_fn(params):
         pred_spectra = state.apply_fn(
             {"params": params},
@@ -471,13 +466,177 @@ def train_step_pmap(
         loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         jax.debug.print("loss_array shape: {}", loss_array.shape)  # Should be (device_batch, ...)
         
-        match configs_mean:
-            case 'Arithmetic':
-                local_loss = loss_array.mean()
-            case 'Geometric':
-                local_loss = my_geometric_mean(loss_array)
-            case _:
-                raise Exception(f"You didn't specify a mean to be used!")
+        
+        return loss_array.mean() # scalar per device
+    
+    
+    local_loss, local_grads = jax.value_and_grad(corrected_gamma_loss_fn)(state.params)
+    jax.debug.print("local_loss shape: {}", local_loss.shape)  # Should be (1,)
+    jax.debug.print("local_grads shapes: {}", jax.tree_map(lambda x: x.shape, local_grads))
+    
+    # Calculating global mean by averaging local mean can work only in the case of equally sharded data - which is the case
+    global_loss = jax.tree_map(lambda loss: lax.pmean(loss, axis_name="devices"), local_loss)
+    final_grads = jax.tree_map(lambda g: lax.pmean(g, axis_name="devices"), local_grads)
+    
+    jax.debug.print("global_loss shape: {}", global_loss.shape)  # Should be (1,)
+    
+    # Check final_grads for NaNs, Infs
+    flat_grads, _ = jax.tree_util.tree_flatten(final_grads)
+    all_grads = jnp.concatenate([jnp.ravel(g) for g in flat_grads])
+    nan_check = jnp.any(jnp.isnan(all_grads))
+    inf_check = jnp.any(jnp.isinf(all_grads))
+    lax.cond(nan_check, lambda _: jax.debug.print("NaN in final grads"), lambda _: None, operand=None)
+    lax.cond(inf_check, lambda _: jax.debug.print("Inf in final grads"), lambda _: None, operand=None)
+    
+    # Compute gradient parameters for logging
+    grad_min = jnp.min(all_grads)
+    grad_mean = jnp.mean(all_grads)
+    grad_median = jnp.median(all_grads)
+    grad_max = jnp.max(all_grads)
+    
+    # single parameter update
+    new_state = state.apply_gradients(grads=final_grads)
+    
+    
+    # ========== SHAPE SAFETY CHECKS ==========
+    jax.debug.print("global_loss shape: {}", global_loss.shape)  # Should be (1,)
+    jax.debug.print("grad_min shape: {}", grad_min.shape)        # Should be (1,)
+    
+    # Convert all scalar metrics to rank-1 tensors
+    train_metrics = {
+        "train_loss": jnp.expand_dims(global_loss, 0),  # shape (1,) instead of ()
+        "grad_min": jnp.expand_dims(grad_min, 0),
+        "grad_mean": jnp.expand_dims(grad_mean, 0),
+        "grad_median": jnp.expand_dims(grad_median, 0),
+        "grad_max": jnp.expand_dims(grad_max, 0)
+    }
+    # Verify all metrics are rank-1
+    for k, v in train_metrics.items():
+        if v.ndim == 0:
+            raise ValueError(f"Metric {k} is scalar! Shape: {v.shape}")
+    
+    return new_state, train_metrics
+
+
+# ==========================
+#     MULTI-DEVICE VALIDATION STEP WITH ARITHMETIC LOSS
+# ==========================
+# @partial(
+#     jax.pmap,
+#     axis_name="batch"
+# )
+@jax.jit
+def validation_step_pmap_arithmetic(
+    state: TrainState, 
+    batch, 
+    dropout_key
+):
+    # Get device count dynamically
+    num_devices = len(jax.devices())
+
+    # Because 'state.step' is replicated, use state.step[0] for fold_in
+    dropout_train_key = jax.random.fold_in(dropout_key, state.step[0])
+    
+    
+    # Local loss per device function
+    def corrected_gamma_loss_fn(params):
+        pred_spectra = state.apply_fn(
+            {"params": params},
+            batch["masked_spectra"],
+            batch["wave_number"],
+            batch["mask"],
+            training=False,
+            rngs={"dropout": dropout_train_key},
+        )
+        
+        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print("NaN in pred_spectra"), lambda _: None, operand=None)
+        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print("Inf in pred_spectra"), lambda _: None, operand=None)
+        
+        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
+        
+        local_loss = loss_array.mean()
+        
+        return local_loss # scalar per device
+    
+    
+    local_loss = corrected_gamma_loss_fn(state.params)
+    
+    # Calculating global mean by averaging local mean can work only in the case of equally sharded data - which is the case
+    global_loss = jax.tree_map(lambda loss: lax.pmean(loss, axis_name="devices"), local_loss)
+    
+    val_metrics = {
+        "val_corrected_gamma_loss": jnp.expand_dims(global_loss, 0)  # shape (1,)
+        }
+    
+    # Validation shape check
+    if val_metrics["val_loss"].ndim == 0:
+        raise ValueError("Validation loss became scalar!")
+    
+    return state, val_metrics
+
+# ==========================
+#     MULTI-DEVICE TRAIN STEP WITH GEOMETRIC LOSS
+# ==========================
+# @partial(
+#     jax.pmap,
+#     axis_name="batch"
+# )
+@jax.jit
+def train_step_pmap_geometric(
+    state: TrainState,
+    batch,
+    dropout_key
+):
+    # Get device count dynamically
+    num_devices = len(jax.devices())
+    # This runs during compilation
+    print("COMPILATION TRACE (regular print)") 
+    
+    # This runs during execution
+    jax.debug.print("EXECUTION TRACE (debug.print)")
+    
+    # Force an error if you don't see prints
+    if not hasattr(train_step_pmap_geometric, "_seen_first_execution"):
+        jax.debug.print("FIRST EXECUTION")
+        train_step_pmap_geometric._seen_first_execution = True
+    
+    jax.debug.print("Input shapes - spectra: {}, mask: {}", batch['spectra'].shape, batch['mask'].shape)
+    
+    # Because 'state.step' is replicated, use state.step[0] for fold_in
+    dropout_train_key = jax.random.fold_in(dropout_key, state.step)
+    
+    def my_geometric_mean(loss, eps=1e-8):
+            non_negative = abs(loss)
+            clipped = jnp.clip(non_negative, eps)
+            mean_log = jnp.mean(jnp.log(clipped))
+            return jnp.exp(mean_log)
+    
+    # Local loss per device function
+    @partial(
+        jax.pmap,
+        axis_name="devices"
+    )
+    def corrected_gamma_loss_fn(params):
+        pred_spectra = state.apply_fn(
+            {"params": params},
+            batch["masked_spectra"],
+            batch["wave_number"],
+            batch["mask"],
+            training=True,
+            rngs={"dropout": dropout_train_key},
+        )
+        
+        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print("NaN in pred_spectra"), lambda _: None, operand=None)
+        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print("Inf in pred_spectra"), lambda _: None, operand=None)
+        
+        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
+        jax.debug.print("loss_array shape: {}", loss_array.shape)  # Should be (device_batch, ...)
+        
+        local_loss = my_geometric_mean(loss_array)
         
         return local_loss # scalar per device
     
@@ -487,6 +646,7 @@ def train_step_pmap(
     jax.debug.print("local_grads shapes: {}", jax.tree_map(lambda x: x.shape, local_grads))
     
     log_local = jnp.log(jnp.clip(local_loss, 1e-8))
+    print(f"log_local: {log_local}, log_local.shape: {log_local.shape}")
     sum_log_local = lax.psum(log_local, axis_name="devices")
     mean_log_local = sum_log_local / num_devices
     global_loss = jnp.exp(mean_log_local)
@@ -536,21 +696,20 @@ def train_step_pmap(
 
 
 # ==========================
-#     MULTI-DEVICE VALIDATION STEP
+#     MULTI-DEVICE VALIDATION STEP WITH GEOMETRIC LOSS
 # ==========================
-@partial(
-    jax.pmap,
-    axis_name="devices",
-    static_broadcasted_argnums=(3,)  # Using indices for static args
-)
-def validation_step_pmap(
+# @partial(
+#     jax.pmap,
+#     axis_name="batch"
+# )
+@jax.jit
+def validation_step_pmap_geometric(
     state: TrainState, 
     batch, 
-    dropout_key,
-    configs_mean: str,    # Static (string)
+    dropout_key
 ):
     # Get device count dynamically
-    num_devices = jax.lax.psum(1, axis_name="devices")
+    num_devices = len(jax.devices())
 
     # Because 'state.step' is replicated, use state.step[0] for fold_in
     dropout_train_key = jax.random.fold_in(dropout_key, state.step[0])
@@ -579,13 +738,7 @@ def validation_step_pmap(
         
         loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         
-        match configs_mean:
-            case 'Arithmetic':
-                local_loss = loss_array.mean()
-            case 'Geometric':
-                local_loss = my_geometric_mean(loss_array)
-            case _:
-                raise Exception(f"You didn't specify a mean to be used!")
+        local_loss = my_geometric_mean(loss_array)
         
         return local_loss # scalar per device
     
@@ -618,6 +771,15 @@ def train_epoch_pmap(
     window_RNG_key, 
     mean_streams
 ):
+    # Choosing the train step function WITHOUT pmapping scalar string
+    match mean_streams["mean"]:
+        case "Arithmetic":
+            train_step_pmap = train_step_pmap_arithmetic
+        case "Geometric":
+            train_step_pmap = train_step_pmap_geometric
+        case _:
+            raise ValueError("Mean is incorrect.")
+    
     # Get current devices
     devices = jax.devices()
     num_devices = len(devices)
@@ -649,12 +811,12 @@ def train_epoch_pmap(
     for batch in data_loader:
         # 1) Shard the batch so each device gets a sub-batch
         batch_sharded = shard_batch(batch)
-        # Add this right after your shard_batch call
         # jax.debug.breakpoint()  # Forces synchronization and print flushing
-
         # 2) Create a dropout key for each device
         print(f'rng_streams["dropout"]: ', rng_streams["dropout"])
+        print(f'rng_streams["dropout"].shape: ', rng_streams["dropout"].shape)
         dropout_sharded = jax.random.split(rng_streams["dropout"], num_devices)
+        # dropout_sharded = jax.random.key_data(dropout_sharded)
         print("dropout_sharded: ",dropout_sharded)
         print("Fixed dropout shape:", dropout_sharded.shape)  # Should be (num_devices, 2)
         # Ensure same number of keys as devices
@@ -664,22 +826,11 @@ def train_epoch_pmap(
         assert dropout_sharded.shape == (num_devices, ), \
             f"Bad dropout keys shape: {dropout_sharded.shape}. Needed ({num_devices}, )"
         
-        print("Dropout key structure:")
+        print("=== Dropout key structure: ===")
         print("Type:", type(dropout_sharded))
         print("Shape:", dropout_sharded.shape)
         print("Example key: ", dropout_sharded[0], " , its shape: ", dropout_sharded[0].shape)  # Should be array([...]) with shape (2,)
-        
-        # print("TrainState shapes:")
-        # print(jax.tree_map(lambda x: x.shape if hasattr(x, 'shape') else str(x), state))(rng_streams["dropout"], num_devices)
-        # print("Dropout key shape:", dropout_sharded.shape)
-        # print("num_devices type:", type(num_devices))
-        # print("mean_streams['mean']:", mean_streams["mean"])
-
-        # # Before calling train_step_pmap:
-        # print("==== WRAPPER DEBUGGING ====")
-        # print("Original function:", train_step_pmap.__name__)
-        # print("Is compiled:", hasattr(train_step_pmap, "lower"))
-        # print("Input shapes:", {k: v.shape for k, v in batch.items()})
+        print()
 
         def verify_pmap_inputs(state, batch, dropout_key):
             """Ensure all inputs have rank ≥ 1"""
@@ -705,19 +856,10 @@ def train_epoch_pmap(
 
         # Usage before compilation:
         verify_pmap_inputs(state, batch_sharded, dropout_sharded)
-        print("verify_pmap_inputs - success!")
-        
-        try:
-            # Explicitly compile to see errors
-            compiled = train_step_pmap.lower(state, batch, dropout_sharded, mean_streams["mean"])
-            compiled.compile()
-            print("Compilation successful!")
-        except Exception as e:
-            print(f"Compilation failed: {type(e).__name__}: {e}")
-            raise
+        print(f"verify_pmap_inputs - success!\n")
         
         def safe_shard(batch):
-            print("\n=== PRE-PMAP SHAPE CHECK ===")
+            print("\n=== PRE-PMAP SHAPE CHECK OF THE BATCH ===")
             for k, v in batch.items():
                 print(f"{k}: {v.shape} (rank {v.ndim})")
                 if v.ndim == 0:
@@ -727,14 +869,24 @@ def train_epoch_pmap(
         # Apply before pmap
         batch = safe_shard(batch)
         
+        # try:
+        #     # Explicitly compile to see errors
+        #     compiled = train_step_pmap.lower(state, batch_sharded, rng_streams["dropout"])
+        #     compiled.compile()
+        #     print("Compilation successful!")
+        # except Exception as e:
+        #     print(f"Compilation failed: {type(e).__name__}: {e}")
+        #     raise
+        
+
+        
 
         
         # 3) Run pmapped train step
         state, batch_metrics = train_step_pmap(
             state, 
             batch_sharded, 
-            dropout_sharded, 
-            mean_streams["mean"],
+            rng_streams["dropout"]
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 
@@ -775,6 +927,15 @@ def validation_epoch_pmap(
     window_RNG_key, 
     mean_streams
 ):
+    # Choosing the train step function WITHOUT pmapping scalar string
+    match mean_streams["mean"]:
+        case "Arithmetic":
+            validation_step_pmap = validation_step_pmap_arithmetic
+        case "Geometric":
+            validation_step_pmap = validation_step_pmap_geometric
+        case _:
+            raise ValueError("Mean is incorrect.")
+    
     # Get current devices
     devices = jax.devices()
     num_devices = len(devices)
@@ -798,13 +959,13 @@ def validation_epoch_pmap(
 
         # 2) Create a dropout key for each device
         dropout_sharded = jax.random.split(rng_streams["dropout"], num_devices)
+        # dropout_sharded = jax.random.key_data(dropout_sharded)
 
         # 3) Run pmapped train step
         _, batch_metrics = validation_step_pmap(
             state, 
             batch_sharded, 
-            dropout_sharded, 
-            mean_streams["mean"],
+            dropout_sharded
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 
