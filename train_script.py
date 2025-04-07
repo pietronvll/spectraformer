@@ -35,7 +35,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min42_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "micro43_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 training_regime = "All devices" # one from ["One device", "All devices"]
@@ -46,18 +46,8 @@ configsdir.mkdir(parents=True, exist_ok=True)
 config_file_name = f"configs_{model_tag}.yaml"
 config_file_path = configsdir / config_file_name
 
-# Test with simplest possible pmap function
-@jax.pmap
-def dummy_pmap(x):
-    jax.debug.print("DUMMY PMAP WORKING - input shape: {}", x.shape)
-    return x + 1
 
 if __name__ == "__main__":
-        
-
-    # Try with known-good input
-    dummy_input = jnp.ones((jax.device_count(), 1))  # (4,1) for 4 devices
-    print("Dummy pmap result:", dummy_pmap(dummy_input))
     
     
     configs = ml_confs.from_file(config_file_path)
@@ -109,52 +99,52 @@ if __name__ == "__main__":
     #|                           decay_steps                             |
     #|<----------------------------------------------------------------->|
     
-    def create_rank_safe_adam(configs, cosine_kwargs):
-        """Creates an Adam optimizer"""
-        learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+    # def create_rank_safe_adam(configs, cosine_kwargs):
+    #     """Creates an Adam optimizer"""
+    #     learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
         
-        match learning_rate_decay:
-            case "Multiple cosine decay cycles":
-                lr_schedule = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
-                base_optimizer = optax.adam(learning_rate=lr_schedule)
-            case "Constant":
-                base_optimizer = optax.adam(learning_rate=configs.learning_rate)
-            case _:
-                raise ValueError(f"Unknown schedule: {learning_rate_decay}")
+    #     match learning_rate_decay:
+    #         case "Multiple cosine decay cycles":
+    #             lr_schedule = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+    #             base_optimizer = optax.adam(learning_rate=lr_schedule)
+    #         case "Constant":
+    #             base_optimizer = optax.adam(learning_rate=configs.learning_rate)
+    #         case _:
+    #             raise ValueError(f"Unknown schedule: {learning_rate_decay}")
 
-        # Wrapper to ensure rank-safe states
-        def init_fn(params):
-            opt_state = base_optimizer.init(params)
-            # Convert scalar counts to rank-1
-            return jax.tree_map(
-                lambda x: jnp.expand_dims(x, 0) if hasattr(x, 'ndim') and x.ndim == 0 else x,
-                opt_state
-            )
+    #     # Wrapper to ensure rank-safe states
+    #     def init_fn(params):
+    #         opt_state = base_optimizer.init(params)
+    #         # Convert scalar counts to rank-1
+    #         return jax.tree_map(
+    #             lambda x: jnp.expand_dims(x, 0) if hasattr(x, 'ndim') and x.ndim == 0 else x,
+    #             opt_state
+    #         )
         
-        def update_fn(grads, state, params):
-            updates, new_state = base_optimizer.update(grads, state, params)
-            new_params = optax.apply_updates(params, updates)
-            # Maintain rank-1 for scalar states
-            new_state = jax.tree_map(
-                lambda x: jnp.expand_dims(x, 0) if hasattr(x, 'ndim') and x.ndim == 0 else x,
-                new_state
-            )
-            return new_params, new_state
+    #     def update_fn(grads, state, params):
+    #         updates, new_state = base_optimizer.update(grads, state, params)
+    #         new_params = optax.apply_updates(params, updates)
+    #         # Maintain rank-1 for scalar states
+    #         new_state = jax.tree_map(
+    #             lambda x: jnp.expand_dims(x, 0) if hasattr(x, 'ndim') and x.ndim == 0 else x,
+    #             new_state
+    #         )
+    #         return new_params, new_state
         
-        return optax.GradientTransformation(init_fn, update_fn)
+    #     return optax.GradientTransformation(init_fn, update_fn)
     
-    tx = create_rank_safe_adam(configs, cosine_kwargs)
+    # tx = create_rank_safe_adam(configs, cosine_kwargs)
     
     
-    # learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
-    # match learning_rate_decay:
-    #     case "Multiple cosine decay cycles":
-    #         learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
-    #         tx = optax.adam(learning_rate=learning_rate_fn)
-    #     case "Constant":
-    #         tx = optax.adam(learning_rate=configs.learning_rate)
-    #     case _:
-    #         raise Exception(f"You didn't specify a learning rate schedule!")
+    learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+    match learning_rate_decay:
+        case "Multiple cosine decay cycles":
+            learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+            tx = optax.adam(learning_rate=learning_rate_fn)
+        case "Constant":
+            tx = optax.adam(learning_rate=configs.learning_rate)
+        case _:
+            raise Exception(f"You didn't specify a learning rate schedule!")
     
     ####################################################################################################
     # Dataset loading and separation into train/val section
@@ -163,22 +153,39 @@ if __name__ == "__main__":
     full_ds = preprocess_dataset(
         xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
     )
+
+    # Verify dataset dimensions
+    print("Original dataset dimensions:", full_ds.dims)  # Should show (wave_number, spectra)
+
     # Define the split fraction and random seed
     split_fraction = 0.8  # 80% for training, 20% for validation
-    rng_seed = configs.root_rng_seed  # Use the seed from the config for reproducibility
-    # Shuffle indices
-    np.random.seed(rng_seed)
-    indices = np.arange(len(full_ds))
-    np.random.shuffle(indices)
+    shuffle_rng_seed = configs.root_rng_seed
+
+    # Get number of spectra samples
+    n_spectra = full_ds.sizes['spectra']
+
+    # Shuffle spectra indices
+    np.random.seed(shuffle_rng_seed)
+    spectra_indices = np.arange(n_spectra)
+    np.random.shuffle(spectra_indices)
+
     # Split indices
-    split_index = int(len(indices) * split_fraction)
-    train_indices = indices[:split_index]
-    val_indices = indices[split_index:]
-    # Split dataset
-    train_ds = full_ds[train_indices]
-    val_ds = full_ds[val_indices]
-    print(f"Training samples: {len(train_ds)}, Validation samples: {len(val_ds)}, Total: {len(full_ds)}={len(train_ds)+len(val_ds)}")
-    print("Filtered train dataset shape:", train_ds.shape)
+    split_index = int(n_spectra * split_fraction)
+    train_spectra_indices = spectra_indices[:split_index]
+    val_spectra_indices = spectra_indices[split_index:]
+
+    # Split dataset along spectra dimension
+    train_ds = full_ds.isel(spectra=train_spectra_indices)
+    val_ds = full_ds.isel(spectra=val_spectra_indices)
+
+    print("\nSplit verification:")
+    print(f"Training spectra samples: {train_ds.sizes['spectra']}")
+    print(f"Validation spectra samples: {val_ds.sizes['spectra']}")
+    print(f"Total spectra: {n_spectra} = {train_ds.sizes['spectra'] + val_ds.sizes['spectra']}")
+    print("\nShape verification (wave_number should match):")
+    print(f"Original wave_number count: {full_ds.sizes['wave_number']}")
+    print(f"Train dataset shape: {train_ds.shape}")
+    print(f"Val dataset shape: {val_ds.shape}")
     # ####################################################################################################
     # END of "Dataset loading and separation into train/val section"
     # ####################################################################################################
@@ -188,7 +195,7 @@ if __name__ == "__main__":
     )
     
     dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
-    print(f"Train dataset of length {len(train_ds.spectra)} with leaves of shape:")
+    print(f"\nTrain dataset of length {len(train_ds.spectra)} with leaves of shape:")
     for k, v in dummy_example.items():
         print(f"  {k} -> {v.shape}")
     
@@ -214,12 +221,17 @@ if __name__ == "__main__":
     )
     
     state = TrainState.create(
+        # step=jnp.array(0, dtype=jnp.int32),
         apply_fn=jax.jit(
             model.apply, static_argnames=("training", "capture_intermediates")
         ),
         params=variables["params"],
         tx=tx
     )
+    # After state creation
+    print("\nInitial step type:", type(state.step))  # Should be DeviceArray
+    # print("\nInitial step shape:", state.step.shape)  # Must be () UPD: there is no shape argument in int object
+    
     
     # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(
@@ -266,7 +278,8 @@ if __name__ == "__main__":
     ####################################################################################################
     # Training & metrics calculation section
     ####################################################################################################
-    
+    state = jax.device_put_replicated(state, jax.local_devices())
+    print(f"\nReplicated step shape: {jnp.shape(state.step)}\n")  # (num_devices,)
     for epoch in range(configs.num_epochs):
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
