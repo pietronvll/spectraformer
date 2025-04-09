@@ -35,8 +35,9 @@ datadir = maindir / "data"
 # Section of Parameters choise for unmixing
 # ####################################################################################################
 
-model_tag = "min41_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min23_CorrGamma"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
+material = 'gold' #Change this accordingly to the folder name where your mixtures are
 
 # Savgol filter parameters. I find 100 and 9 the best, but there is nothing behind it, it's arbitrary
 window_length = 100
@@ -52,7 +53,7 @@ configsdir.mkdir(parents=True, exist_ok=True)
 config_file_name = f"configs_{model_tag}.yaml"
 config_file_path = configsdir / config_file_name
 
-mixdir = datadir / "mixtures"
+mixdir = datadir / "mixtures" / material
 mixdir.mkdir(parents=True, exist_ok=True)
 
 unmixdir = datadir / "unmixed"
@@ -60,6 +61,9 @@ unmixdir.mkdir(parents=True, exist_ok=True)
 
 unmixdir_model = unmixdir / model_tag
 unmixdir_model.mkdir(parents=True, exist_ok=True)
+
+unmixdir_model_material = unmixdir_model / material
+unmixdir_model_material.mkdir(parents=True, exist_ok=True)
 
 def load_model(
     configs,
@@ -110,8 +114,8 @@ def load_model(
     #|                           decay_steps                             |
     #|<----------------------------------------------------------------->|
     
-    cosine_kwargs_df = pd.DataFrame(cosine_kwargs)
-    print(cosine_kwargs_df.to_markdown())
+    # cosine_kwargs_df = pd.DataFrame(cosine_kwargs)
+    # print(cosine_kwargs_df.to_markdown())
     
     learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
     
@@ -267,7 +271,7 @@ if __name__ == "__main__":
 
         # 5) Save the dataset to NetCDF
         # Saving predictions
-        ds.to_netcdf(unmixdir_model / f"unmixed_by_{model_tag}_{elem.name}", engine="netcdf4")
+        ds.to_netcdf(unmixdir_model_material / f"unmixed_by_{model_tag}_{elem.name}", engine="netcdf4")
         print(f"Saved unmixed_by_{model_tag}_{elem.name}")
     
     print('Unmixing done.')

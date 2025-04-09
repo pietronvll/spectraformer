@@ -35,7 +35,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min44_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min45_GeomLoss"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 training_regime = "All devices" # one from ["One device", "All devices"]
