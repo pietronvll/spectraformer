@@ -11,7 +11,7 @@ decay_steps: 4500
 num_cycles: 100
 decline_coeff: 0.8
 
-num_epochs: 2400
+num_epochs: 3600
 batch_size: 24
 dropout_rate: 0.5
 root_rng_seed: 0
