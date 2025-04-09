@@ -580,16 +580,18 @@ def validation_step_pmap_arithmetic(
 # ==========================
 @partial(
     jax.pmap,
-    axis_name="batch"
+    axis_name="batch",
+    static_broadcasted_argnums=(3,)  # Add static arg
 )
 # @jax.jit
 def train_step_pmap_geometric(
     state: TrainState,
     batch,
-    dropout_key
+    dropout_key,
+    num_devices: int  # Passed explicitly
 ):
     # Get device count dynamically
-    num_devices = len(jax.devices())
+    num_devices = num_devices
     # This runs during compilation
     # print("COMPILATION TRACE (regular print)") 
     
@@ -607,9 +609,29 @@ def train_step_pmap_geometric(
     # print("Step: ", state.step)
     # jax.debug.print("Device step shape: {}", state.step.shape)  # Should be ()
     # device_step = lax.index_in_dim(state.step, 0, keepdims=False)
-    device_step = state.step
+    # device_step = state.step
     # print("\nDevice step: {}\n", device_step)  # Should print scalars
-    dropout_train_key = jax.random.fold_in(dropout_key, device_step)
+    # dropout_train_key = jax.random.fold_in(dropout_key, device_step)
+    
+    # bare_dropout_key = dropout_key
+    # dropout_train_key = jax.random.fold_in(bare_dropout_key, device_step)
+    
+    # Get device index for unique key folding
+    device_idx = lax.axis_index('batch')
+    
+    # Fold key with device-specific index
+    folded_key = jax.random.fold_in(dropout_key, device_idx)
+    dropout_train_key = folded_key
+    
+    # # 1. Device-specific key derivation
+    # device_idx = lax.axis_index('batch')
+    # jax.debug.print("Device index: {}", device_idx)
+    # device_key = jax.random.fold_in(root_dropout_key, device_idx)
+    
+    # # 2. Time-dependent key folding
+    # dropout_train_key = jax.random.fold_in(device_key, state.step)
+    
+    print(f"dropout_train_key: {dropout_train_key}")
     
     def my_geometric_mean(loss, eps=1e-8):
             non_negative = abs(loss)
@@ -700,11 +722,12 @@ def train_step_pmap_geometric(
     #     if v.ndim == 0:
     #         raise ValueError(f"Metric {k} is scalar! Shape: {v.shape}")
     
-    jax.debug.print(
-        "Training - Peak memory (MB): {}", 
-        jax.devices()[0].memory_stats()["peak_bytes_in_use"] / 1e6
-        )
+    # jax.debug.print(
+    #     "Training - Peak memory (MB): {}", 
+    #     jax.devices()[0].memory_stats()["peak_bytes_in_use"] / 1e6
+    #     )
     
+    print(train_metrics)
     return new_state, train_metrics
 
 
@@ -713,20 +736,36 @@ def train_step_pmap_geometric(
 # ==========================
 @partial(
     jax.pmap,
-    axis_name="batch"
+    axis_name="batch",
+    static_broadcasted_argnums=(3,)  # Add static arg
 )
 # @jax.jit
 def validation_step_pmap_geometric(
     state: TrainState, 
     batch, 
-    dropout_key
+    dropout_key,
+    num_devices: int  # Passed explicitly
 ):
     # Get device count dynamically
-    num_devices = len(jax.devices())
+    num_devices = num_devices
     device_step = state.step
     
-    # Because 'state.step' is replicated, use state.step[0] for fold_in
-    dropout_train_key = jax.random.fold_in(dropout_key, device_step)
+    # # Because 'state.step' is replicated, use state.step[0] for fold_in
+    # dropout_train_key = jax.random.fold_in(dropout_key, device_step)
+    
+    # Get device index for unique key folding
+    device_idx = lax.axis_index('batch')
+    
+    # Fold key with device-specific index
+    folded_key = jax.random.fold_in(dropout_key, device_idx)
+    dropout_train_key = folded_key
+    
+    # # 1. Device-specific key derivation
+    # device_idx = lax.axis_index('batch')
+    # device_key = jax.random.fold_in(root_dropout_key, device_idx)
+    
+    # # 2. Time-dependent key folding
+    # dropout_train_key = jax.random.fold_in(device_key, state.step)
     
     def my_geometric_mean(loss, eps=1e-8):
             non_negative = abs(loss)
@@ -772,10 +811,10 @@ def validation_step_pmap_geometric(
     # if val_metrics["val_loss"].ndim == 0:
     #     raise ValueError("Validation loss became scalar!")
     
-    jax.debug.print(
-        "Validation - Peak memory (MB): {}", 
-        jax.devices()[0].memory_stats()["peak_bytes_in_use"] / 1e6
-        )
+    # jax.debug.print(
+    #     "Validation - Peak memory (MB): {}", 
+    #     jax.devices()[0].memory_stats()["peak_bytes_in_use"] / 1e6
+    #     )
     
     return state, val_metrics
 
@@ -837,7 +876,7 @@ def train_epoch_pmap(
         # print("Replicated step shape:", replicated_state.step.shape)  # (num_devices,)
         
         def batch_shard_check(batch):
-            print("\n=== PRE-PMAP SHAPE CHECK OF THE BATCH ===")
+            # print("\n=== PRE-PMAP SHAPE CHECK OF THE BATCH ===")
             for k, v in batch.items():
                 print(f"{k}: {v.shape} (rank {v.ndim})")
             if v.ndim == 0:
@@ -854,19 +893,22 @@ def train_epoch_pmap(
         # print(f'rng_streams["dropout"].shape: ', rng_streams["dropout"].shape)
         
         dropout_device_keys = jax.random.split(rng_streams["dropout"], num_devices)
-        # print("\nDropout device keys before converting to the list: \n", dropout_device_keys)
+        # print("\nDropout device keys right after splitting: \n", dropout_device_keys)
         dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]  # Convert to list
+        # dropout_device_keys = [jnp.expand_dims(dropout_device_keys[i], axis=0) for i in range(num_devices)] #Convert to a list with dimension expansion
         # print("\nDropout device keys after converting to the list: \n", dropout_device_keys)
-        dropout_sharded = jax.device_put_sharded(dropout_device_keys, jax.local_devices())
         
-        # print("dropout_sharded: ",dropout_sharded)
+        
+        dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
+        
+        # print("\nDropout device keys after sharding: ",dropout_sharded)
         # print("Fixed dropout shape:", dropout_sharded.shape)  # Should be (num_devices, )
         # Ensure same number of keys as devices
         assert len(dropout_sharded) == len(jax.devices()), \
             f"Sharded Dropout keys lenght {len(dropout_sharded)} doesn't match devices number {len(jax.devices())}."
         # Verify before PMAP call
-        assert dropout_sharded.shape == (num_devices, ), \
-            f"Bad dropout keys shape: {dropout_sharded.shape}. Needed ({num_devices}, )"
+        assert dropout_sharded.shape == (num_devices, 2), \
+            f"Bad dropout keys shape: {dropout_sharded.shape}. Needed ({num_devices}, 2)"
         
         # print("=== Dropout key structure: ===")
         # print("Type:", type(dropout_sharded))
@@ -923,7 +965,9 @@ def train_epoch_pmap(
         state, batch_metrics = train_step_pmap(
             state, 
             batch_sharded, 
-            dropout_sharded)
+            dropout_sharded,
+            num_devices
+            )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 
         metrics_list.append(batch_metrics)
@@ -1000,13 +1044,14 @@ def validation_epoch_pmap(
         # print("\nDropout device keys before converting to the list: \n", dropout_device_keys)
         dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]  # Convert to list
         # print("\nDropout device keys after converting to the list: \n", dropout_device_keys)
-        dropout_sharded = jax.device_put_sharded(dropout_device_keys, jax.local_devices())
+        dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
 
         # 3) Run pmapped train step
         _, batch_metrics = validation_step_pmap(
             state, 
             batch_sharded, 
-            dropout_sharded
+            dropout_sharded,
+            num_devices
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 

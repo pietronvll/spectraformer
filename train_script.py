@@ -35,7 +35,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "micro43_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min44_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 training_regime = "All devices" # one from ["One device", "All devices"]
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     )
     
     # RNG Keys
-    root_key = jax.random.key(seed=configs.root_rng_seed)
+    root_key = jax.random.PRNGKey(seed=configs.root_rng_seed)
     main_key, params_key, dropout_key = jax.random.split(key=root_key, num=3)
     window_RNG_key = jax.random.split(main_key, num=1)[0]
     
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     ####################################################################################################
     # Training & metrics calculation section
     ####################################################################################################
-    state = jax.device_put_replicated(state, jax.local_devices())
+    state = jax.device_put_replicated(state, jax.devices())
     print(f"\nReplicated step shape: {jnp.shape(state.step)}\n")  # (num_devices,)
     for epoch in range(configs.num_epochs):
         # Key updating
