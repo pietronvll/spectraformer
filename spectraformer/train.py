@@ -631,7 +631,7 @@ def train_step_pmap_geometric(
     # # 2. Time-dependent key folding
     # dropout_train_key = jax.random.fold_in(device_key, state.step)
     
-    print(f"dropout_train_key: {dropout_train_key}")
+    # print(f"dropout_train_key: {dropout_train_key}")
     
     def my_geometric_mean(loss, eps=1e-8):
             non_negative = abs(loss)
@@ -727,7 +727,7 @@ def train_step_pmap_geometric(
     #     jax.devices()[0].memory_stats()["peak_bytes_in_use"] / 1e6
     #     )
     
-    print(train_metrics)
+    # print(train_metrics)
     return new_state, train_metrics
 
 

@@ -19,7 +19,7 @@ from flax.training.train_state import TrainState
 from tensorboardX import SummaryWriter
 from dataclasses import replace
 
-from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
+from spectraformer.input_pipeline import batch_sampler, preprocess_dataset, dataset_loader
 from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap
 
@@ -35,7 +35,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min46_GeomLoss"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "micro43_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 training_regime = "All devices" # one from ["One device", "All devices"]
@@ -146,56 +146,72 @@ if __name__ == "__main__":
         case _:
             raise Exception(f"You didn't specify a learning rate schedule!")
     
-    ####################################################################################################
-    # Dataset loading and separation into train/val section
-    #################################################################################################### 
-    # Load the full dataset
-    full_ds = preprocess_dataset(
-        xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
-    )
-
-    # Verify dataset dimensions
-    print("Original dataset dimensions:", full_ds.dims)  # Should show (wave_number, spectra)
-
-    # Define the split fraction and random seed
-    split_fraction = 0.8  # 80% for training, 20% for validation
-    shuffle_rng_seed = configs.root_rng_seed
-
-    # Get number of spectra samples
-    n_spectra = full_ds.sizes['spectra']
-
-    # Shuffle spectra indices
-    np.random.seed(shuffle_rng_seed)
-    spectra_indices = np.arange(n_spectra)
-    np.random.shuffle(spectra_indices)
-
-    # Split indices
-    split_index = int(n_spectra * split_fraction)
-    train_spectra_indices = spectra_indices[:split_index]
-    val_spectra_indices = spectra_indices[split_index:]
-
-    # Split dataset along spectra dimension
-    train_ds = full_ds.isel(spectra=train_spectra_indices)
-    val_ds = full_ds.isel(spectra=val_spectra_indices)
-
-    print("\nSplit verification:")
-    print(f"Training spectra samples: {train_ds.sizes['spectra']}")
-    print(f"Validation spectra samples: {val_ds.sizes['spectra']}")
-    print(f"Total spectra: {n_spectra} = {train_ds.sizes['spectra'] + val_ds.sizes['spectra']}")
-    print("\nShape verification (wave_number should match):")
-    print(f"Original wave_number count: {full_ds.sizes['wave_number']}")
-    print(f"Train dataset shape: {train_ds.shape}")
-    print(f"Val dataset shape: {val_ds.shape}")
     # ####################################################################################################
-    # END of "Dataset loading and separation into train/val section"
-    # ####################################################################################################
+    # # Dataset loading and separation into train/val section
+    # #################################################################################################### 
+    # # Load the full dataset
+    # full_ds = preprocess_dataset(
+    #     xr.load_dataarray(datadir / f"{configs.train_dataset}.nc")
+    # )
+
+    # # Verify dataset dimensions
+    # print("Original dataset dimensions:", full_ds.dims)  # Should show (wave_number, spectra)
+
+    # # Define the split fraction and random seed
+    # split_fraction = 0.8  # 80% for training, 20% for validation
+    # shuffle_rng_seed = configs.root_rng_seed
+
+    # # Get number of spectra samples
+    # n_spectra = full_ds.sizes['spectra']
+
+    # # Shuffle spectra indices
+    # np.random.seed(shuffle_rng_seed)
+    # spectra_indices = np.arange(n_spectra)
+    # np.random.shuffle(spectra_indices)
+
+    # # Split indices
+    # split_index = int(n_spectra * split_fraction)
+    # train_spectra_indices = spectra_indices[:split_index]
+    # val_spectra_indices = spectra_indices[split_index:]
+
+    # # Split dataset along spectra dimension
+    # train_ds = full_ds.isel(spectra=train_spectra_indices)
+    # val_ds = full_ds.isel(spectra=val_spectra_indices)
+
+    # print("\nSplit verification:")
+    # print(f"Training spectra samples: {train_ds.sizes['spectra']}")
+    # print(f"Validation spectra samples: {val_ds.sizes['spectra']}")
+    # print(f"Total spectra: {n_spectra} = {train_ds.sizes['spectra'] + val_ds.sizes['spectra']}")
+    # print("\nShape verification (wave_number should match):")
+    # print(f"Original wave_number count: {full_ds.sizes['wave_number']}")
+    # print(f"Train dataset shape: {train_ds.shape}")
+    # print(f"Val dataset shape: {val_ds.shape}")
+    # # ####################################################################################################
+    # # END of "Dataset loading and separation into train/val section"
+    # # ####################################################################################################
+    
+    train_ds1, val_ds1 = dataset_loader(
+        datadir=datadir,
+        file_location_with_name= "4HSiC_highf_32x32.nc",
+        shuffle_rng_seed=configs.root_rng_seed
+        )
+    train_ds2, val_ds2 = dataset_loader(
+        datadir=datadir,
+        file_location_with_name= "4HSiC_lowf_32x19.nc",
+        shuffle_rng_seed=configs.root_rng_seed
+        )
+    
+    datasets = [
+        (train_ds1, val_ds1),
+        (train_ds2, val_ds2)
+        ]
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
     )
     
-    dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
-    print(f"\nTrain dataset of length {len(train_ds.spectra)} with leaves of shape:")
+    dummy_example = next(batch_sampler(train_ds1, mask_windows, batch_size=1))
+    print(f"\nDummy example -- Train dataset of length {len(train_ds1.spectra)} with leaves of shape:")
     for k, v in dummy_example.items():
         print(f"  {k} -> {v.shape}")
     
@@ -222,9 +238,14 @@ if __name__ == "__main__":
     
     state = TrainState.create(
         # step=jnp.array(0, dtype=jnp.int32),
-        apply_fn=jax.jit(
-            model.apply, static_argnames=("training", "capture_intermediates")
-        ),
+        
+        # # Old implementation
+        # apply_fn=jax.jit(
+        #     model.apply, static_argnames=("training", "capture_intermediates")
+        # ),
+        
+        # # New implementation for training on different datasets at once - without jit
+        apply_fn=model.apply,
         params=variables["params"],
         tx=tx
     )
@@ -279,63 +300,74 @@ if __name__ == "__main__":
     # Training & metrics calculation section
     ####################################################################################################
     state = jax.device_put_replicated(state, jax.devices())
-    print(f"\nReplicated step shape: {jnp.shape(state.step)}\n")  # (num_devices,)
+    print(f"\n===DEBUGGING===          Replicated step shape before main loop: {jnp.shape(state.step)}\n")  # (num_devices,)
     for epoch in range(configs.num_epochs):
+        
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
         
-        match training_regime:
-            case "One device":
-                
-                # Training
-                state, epoch_train_metrics = train_epoch(
-                    state, epoch, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
-                )
-                train_metrics.append(epoch_train_metrics)
-                
-                # Validation
-                state, epoch_val_metrics = validation_epoch(
-                    state, epoch, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
-                )
-                val_metrics.append(epoch_val_metrics)
-                
-            case "All devices":
-                
-                state, epoch_train_metrics = train_epoch_pmap(
-                    state=state, 
-                    epoch=epoch, 
-                    train_ds=train_ds,
-                    configs=configs, 
-                    rng_streams=rng_streams, 
-                    metric_writer=metric_writer, 
-                    ckpt_manager=ckpt_manager, 
-                    window_RNG_key=window_RNG_key, 
-                    mean_streams=mean_streams
-                    )
-                train_metrics.append(epoch_train_metrics)
-                
-                state, epoch_val_metrics = validation_epoch_pmap(
-                    state=state, 
-                    epoch=epoch, 
-                    val_ds=val_ds,
-                    configs=configs, 
-                    rng_streams=rng_streams, 
-                    metric_writer=metric_writer, 
-                    ckpt_manager=ckpt_manager, 
-                    window_RNG_key=window_RNG_key, 
-                    mean_streams=mean_streams
-                    )
-                val_metrics.append(epoch_val_metrics)
-                
-            case _:
-                raise Exception(f"Specify training_regime correctly!")
+        epoch_train_metrics = []
+        epoch_val_metrics = []
         
-        # # Early stop (?)
-        # early_stop = early_stop.update(metrics["loss"])
-        # if early_stop.should_stop:
-        #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
-        #     break
-    
+        # Shuffle dataset order each epoch
+        dataset_order = jax.random.permutation(window_RNG_key, len(datasets))
+        
+        for ds_idx in dataset_order:
+            
+            train_ds, val_ds = datasets[ds_idx]
+            
+            match training_regime:
+                case "One device":
+                    
+                    # Training
+                    state, train_metrics_ds = train_epoch(
+                        state, epoch, train_ds, configs, rng_streams,
+                        metric_writer, ckpt_manager, window_RNG_key, mean_streams
+                    )
+                    # train_metrics.append(epoch_train_metrics)
+                    
+                    # Validation
+                    state, val_metrics_ds = validation_epoch(
+                        state, epoch, val_ds, configs, rng_streams, 
+                        metric_writer, ckpt_manager, mean_streams
+                    )
+                    # val_metrics.append(epoch_val_metrics)
+                    
+                case "All devices":
+                    
+                    state, train_metrics_ds = train_epoch_pmap(
+                        state=state, epoch=epoch, train_ds=train_ds, configs=configs, 
+                        rng_streams=rng_streams, metric_writer=metric_writer, ckpt_manager=ckpt_manager, 
+                        window_RNG_key=window_RNG_key, mean_streams=mean_streams
+                        )
+                    # train_metrics.append(epoch_train_metrics)
+                    
+                    state, val_metrics_ds = validation_epoch_pmap(
+                        state=state, epoch=epoch, val_ds=val_ds, configs=configs, 
+                        rng_streams=rng_streams, metric_writer=metric_writer, ckpt_manager=ckpt_manager,
+                        window_RNG_key=window_RNG_key, mean_streams=mean_streams
+                        )
+                    # val_metrics.append(epoch_val_metrics)
+                    
+                case _:
+                    raise Exception(f"Specify training_regime correctly!")
+            
+            epoch_train_metrics.append(train_metrics_ds)
+            epoch_val_metrics.append(val_metrics_ds)
+            
+            # # Early stop (?)
+            # early_stop = early_stop.update(metrics["loss"])
+            # if early_stop.should_stop:
+            #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
+            #     break
+        train_metrics.append(
+            jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_train_metrics)
+        )
+        val_metrics.append(
+            jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
+        )
+        
+        
     # Need to save metrics to the writer
     train_metrics = stack_forest(train_metrics)
     val_metrics = stack_forest(val_metrics)

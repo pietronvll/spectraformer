@@ -274,3 +274,57 @@ def batch_sampler(
             wave_number=wave_number,
             mask=mask,
         )
+
+def dataset_loader(
+    datadir,
+    file_location_with_name: str,
+    shuffle_rng_seed,
+    split_fraction: float = 0.8
+):
+    """Load the dataset and return the train and validation datasets.
+
+    Args:
+        datadir: Usually maindir / "data"
+        file_location_with_name (str): everything after folder "data" including the file name file.nc
+        shuffle_rng_seed: pass here configs.root_rng_seed
+        split_fraction (float, optional): Split fraction. Defaults to 0.8.
+
+    Returns:
+        train_ds, val_ds
+    """
+    ####################################################################################################
+    # Dataset loading and separation into train/val section
+    #################################################################################################### 
+    # Load the full dataset
+    full_ds = preprocess_dataset(
+        xr.load_dataarray(datadir / file_location_with_name)
+    )
+    print(f"\n----- Loading dataset {file_location_with_name}. -----\n")
+    print("Original dataset dimensions:", full_ds.dims)  # Should show (wave_number, spectra)
+    # Get number of spectra samples
+    n_spectra = full_ds.sizes['spectra']
+
+    # Shuffle spectra indices
+    np.random.seed(shuffle_rng_seed)
+    spectra_indices = np.arange(n_spectra)
+    np.random.shuffle(spectra_indices)
+
+    # Split indices
+    split_index = int(n_spectra * split_fraction)
+    train_spectra_indices = spectra_indices[:split_index]
+    val_spectra_indices = spectra_indices[split_index:]
+
+    # Split dataset along spectra dimension
+    train_ds = full_ds.isel(spectra=train_spectra_indices)
+    val_ds = full_ds.isel(spectra=val_spectra_indices)
+    print("\nSplit verification:")
+    print(f"Training spectra samples: {train_ds.sizes['spectra']}")
+    print(f"Validation spectra samples: {val_ds.sizes['spectra']}")
+    print(f"Total spectra: {n_spectra} = {train_ds.sizes['spectra'] + val_ds.sizes['spectra']}")
+    print("\nShape verification (wave_number should match):")
+    print(f"Original wave_number count: {full_ds.sizes['wave_number']}")
+    print(f"Train dataset shape: {train_ds.shape}")
+    print(f"Val dataset shape: {val_ds.shape}")
+    
+    print(f"\n----- Dataset {file_location_with_name} is loaded. -----\n")
+    return train_ds, val_ds
