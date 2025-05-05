@@ -46,6 +46,14 @@ configsdir.mkdir(parents=True, exist_ok=True)
 config_file_name = f"configs_{model_tag}.yaml"
 config_file_path = configsdir / config_file_name
 
+material_name = "SiC"  # The directory name in parsed_data to load from
+parsed_datadir = datadir / "parsed_data"  # Change this to point to parsed_data
+
+# Find all .nc files in the material directory and its subdirectories
+material_dir = parsed_datadir / material_name
+nc_files = list(material_dir.rglob("*.nc"))
+if not nc_files:
+    raise ValueError(f"No .nc files found in {material_dir}")
 
 if __name__ == "__main__":
     
@@ -190,28 +198,44 @@ if __name__ == "__main__":
     # # END of "Dataset loading and separation into train/val section"
     # # ####################################################################################################
     
-    train_ds1, val_ds1 = dataset_loader(
-        datadir=datadir,
-        file_location_with_name= "4HSiC_highf_32x32.nc",
-        shuffle_rng_seed=configs.root_rng_seed
-        )
-    train_ds2, val_ds2 = dataset_loader(
-        datadir=datadir,
-        file_location_with_name= "4HSiC_lowf_32x19.nc",
-        shuffle_rng_seed=configs.root_rng_seed
-        )
+    # Old manual dataset loading
+    # train_ds1, val_ds1 = dataset_loader(
+    #     datadir=datadir,
+    #     file_location_with_name= "4HSiC_highf_32x32.nc",
+    #     shuffle_rng_seed=configs.root_rng_seed
+    #     )
+    # train_ds2, val_ds2 = dataset_loader(
+    #     datadir=datadir,
+    #     file_location_with_name= "4HSiC_lowf_32x19.nc",
+    #     shuffle_rng_seed=configs.root_rng_seed
+    #     )
     
-    datasets = [
-        (train_ds1, val_ds1),
-        (train_ds2, val_ds2)
-        ]
+    # datasets = [
+    #     (train_ds1, val_ds1),
+    #     (train_ds2, val_ds2)
+    #     ]
+    
+    # New automatic dataset loading
+    datasets = []
+    for nc_file in nc_files:
+        # Get relative path from datadir (e.g., "SiC/subdir/filename.nc")
+        relative_path = nc_file.relative_to(parsed_datadir)
+        
+        train_ds, val_ds = dataset_loader(
+            datadir=parsed_datadir,
+            file_location_with_name=str(relative_path),
+            shuffle_rng_seed=configs.root_rng_seed
+        )
+        datasets.append((train_ds, val_ds))
+
+    print(f"\n===== Loaded {len(datasets)} datasets from {material_dir} =====\n")
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
     )
     
-    dummy_example = next(batch_sampler(train_ds1, mask_windows, batch_size=1))
-    print(f"\nDummy example -- Train dataset of length {len(train_ds1.spectra)} with leaves of shape:")
+    dummy_example = next(batch_sampler(datasets[0][0], mask_windows, batch_size=1))
+    print(f"\nDummy example -- Train dataset of length {len(datasets[0][0].spectra)} with leaves of shape:")
     for k, v in dummy_example.items():
         print(f"  {k} -> {v.shape}")
     

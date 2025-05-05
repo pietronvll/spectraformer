@@ -118,6 +118,13 @@ def preprocess_dataset(
                     ), shift=0.1
                 )
             )
+        case 'proper_bg_proper_norm_with_outliers':
+            # (data-data.min)/data.max
+            preprocessed_dataset = shifting_fn(
+                proper_norm_fn(
+                    dataset
+                    ), shift=0.1
+            )
     
     
     
@@ -296,10 +303,10 @@ def dataset_loader(
     # Dataset loading and separation into train/val section
     #################################################################################################### 
     # Load the full dataset
+    print(f"\n----- Loading dataset {file_location_with_name}. -----\n")
     full_ds = preprocess_dataset(
         xr.load_dataarray(datadir / file_location_with_name)
     )
-    print(f"\n----- Loading dataset {file_location_with_name}. -----\n")
     print("Original dataset dimensions:", full_ds.dims)  # Should show (wave_number, spectra)
     # Get number of spectra samples
     n_spectra = full_ds.sizes['spectra']
