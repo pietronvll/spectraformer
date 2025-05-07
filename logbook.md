@@ -1,3 +1,52 @@
+#### May 07, 2025
+I have overreached 50 GB of space on franklin... By urgent cleaning I managed to start a server. Committing right now. Have to clean more models. And always keep 5 last checkpoints.
+
+#### May 6, 2025
+Looked at **min47**: after 100 epochs the unmixing performace is bad, probably will require more time to learn. But on loss graph it kinda reached saturation. Maybe LR schedule will help? Maybe change LR after N epochs instead of steps? Is it possible?
+
+
+For hyperparameters comparison I've started same training but with **base48** configuration. During training it looks like "uglieness" is much more shrinked on a graph, but let's see it after 100 epochs. UPD: it's the same...
+
+
+But it's independent of epochs. Somewhat around 5 epochs? Yes, it is logging every N % log_every_epoch == 0. So, for log_every_epoch=5 it is 5, 10, ..., 100 (or 0, 5, ..., 95 ?). But it looks like the cluster run out of time before finishing? Because there are 18 points clusters, and should be 20.
+
+There is points cluster for each metrics writing of 20 points each. They are all datasets = 20. Also in-between distance is different, suggesting different dataset sizes. I don't want a total mess on loss-step curves that would be present if I change log_every_epoch parameter to 1. So, let's keep metrics writing every 5 epochs for steps and log every epoch averaged (should be num_epochs points, somehow no mess I hope).
+
+
+To-do's:
+1. (+) Add loss-epoch metric for train and val
+2. (+) Change name of metric loss to loss-step for train and val
+3. (?) LR schedule dependent on epochs? But if I run same model several times how will script know how many epochs were before?
+4. Invent more accurate Data preprocessing workflow: somehow removing outliers and maybe bg removal mechanism?
+5. (+) Maybe discard small datasets from the folder? To allow training to be on at least batch_size.
+6. Low-f datasets: what's the mask, preprocessing workflow etc? 
+
+
+#### May 5, 2025
+I've really needed to log more often.
+So, I have implemented computations parallelization. I ask all GPUs - I use all GPUs. And have made it to be trained for all datasets I have. And arranged datasets in data folder with some logic.
+For several datasets there are a lot of spectra dropped. Because of weird bump in the middle of spectra. And several problem with low frequency datasets: there is a huge optical phonon state, and everything else seems to be miserable, especially after normalization. I have to think about that in details.
+
+
+Also, for supposed batch size 24 (divisible by 1,2,3,and 4 GPUs) for some datasets there are not enough spectra to fill a single batch because of many being rejected. But on my local machine everything worked for batch size 12. So, changed it to 12 untill I'll somehow clean data / substract background / change preprocess flow.
+
+
+Also I need to know what mask should I apply for low-f range data. Because we know that the model tends to directly copy-paste unmasked regions.
+
+
+Last model **min47** is trained for 100 epochs with batchsize 12 constant LR.
+Antonio asked also to change embedding dimension and other hyperparameters.
+
+
+Also I need to think about LR schedule...
+
+
+Should I go back to arithmetic loss? Because the best model so far is ***min23** trained for arithmetic loss. But there were 2 datasets, let's see the performance of **min47** to confirm or reject the influence of multiple datasets on performance (which I expect to be present A LOT).
+
+
+And I need to track loss vs epoch not vs step. Looks ugly...
+
+
 #### Feb 11, 2025
 Successfully implemented corrected Poissonian loss function.
 

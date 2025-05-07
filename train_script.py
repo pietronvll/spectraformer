@@ -35,7 +35,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "micro43_GeomLoss_LRSchedule_4cycles_decline0p8"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "base48_GeomLoss_multidata"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 training_regime = "All devices" # one from ["One device", "All devices"]
@@ -226,9 +226,11 @@ if __name__ == "__main__":
             file_location_with_name=str(relative_path),
             shuffle_rng_seed=configs.root_rng_seed
         )
-        datasets.append((train_ds, val_ds))
+        # Load only those who is large enough to be treated in parallel
+        if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
+            datasets.append((train_ds, val_ds))
 
-    print(f"\n===== Loaded {len(datasets)} datasets from {material_dir} =====\n")
+    print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====\n")
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
@@ -281,7 +283,7 @@ if __name__ == "__main__":
     # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(
         #----------------------------------------------------------------------------------------------------#
-        # max_to_keep=5
+        max_to_keep=5
         #----------------------------------------------------------------------------------------------------#
         )
     if not epath.Path(ckptdir / configs.tag).exists():
@@ -315,7 +317,8 @@ if __name__ == "__main__":
     # This is for drawing on TensorBoard both train and validation losses on a single graph
     layout = {
         "my_layout": {
-            "loss": ["Multiline", ["train/loss", "val/val_corrected_gamma_loss"]],
+            "loss_step": ["Multiline", ["train/train_loss_step", "val/val_loss_step"]],
+            "loss_epoch": ["Multiline", ["train/train_loss_epoch", "val/val_loss_epoch"]],
             },
         }
     metric_writer.add_custom_scalars(layout)
@@ -327,6 +330,8 @@ if __name__ == "__main__":
     print(f"\n===DEBUGGING===          Replicated step shape before main loop: {jnp.shape(state.step)}\n")  # (num_devices,)
     for epoch in range(configs.num_epochs):
         
+        print(f'\n==== Epoch {epoch+1} -- Begin ====\n')
+        
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
         
@@ -335,10 +340,12 @@ if __name__ == "__main__":
         
         # Shuffle dataset order each epoch
         dataset_order = jax.random.permutation(window_RNG_key, len(datasets))
+        print('Dataset order: ',dataset_order)
         
         for ds_idx in dataset_order:
-            
+            print('Dataset number: ', ds_idx)
             train_ds, val_ds = datasets[ds_idx]
+            print(f'Train dataset lenght: {train_ds.shape[1]}, Val dataset lenght: {val_ds.shape[1]}')
             
             match training_regime:
                 case "One device":
@@ -391,7 +398,12 @@ if __name__ == "__main__":
             jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
         )
         
+        # Log epoch-level averages
+        metric_writer.add_scalar("train/train_loss_epoch",  train_metrics[-1]["train_loss"],                epoch+1)
+        metric_writer.add_scalar("train/val_loss_epoch",    val_metrics[-1]["val_corrected_gamma_loss"],    epoch+1)
         
+        
+        print(f'\n==== Epoch {epoch+1} -- End ====\n')
     # Need to save metrics to the writer
     train_metrics = stack_forest(train_metrics)
     val_metrics = stack_forest(val_metrics)

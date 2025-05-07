@@ -711,7 +711,7 @@ def train_step_pmap_geometric(
     #     "grad_max": jnp.expand_dims(grad_max, 0)
     # }
     train_metrics = {
-    "train_loss": global_loss,
+    "train_loss_step": global_loss,
     "grad_min": grad_min,
     "grad_mean": grad_mean,
     "grad_median": grad_median,
@@ -804,7 +804,7 @@ def validation_step_pmap_geometric(
     global_loss = jnp.exp(mean_log_local)
     
     val_metrics = {
-        "val_corrected_gamma_loss": global_loss
+        "val_loss_step": global_loss
         }
     
     # # Validation shape check
@@ -985,12 +985,16 @@ def train_epoch_pmap(
             jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
     
 
-    print(f"Epoch {epoch+1} -- Loss {avg_metrics['train_loss']:.3e}")
+    print(f"Training -- Epoch {epoch+1} -- Loss {avg_metrics['train_loss_step']:.3e}")
 
     # 5) Logging & Checkpoints
     if epoch % configs.log_every_epochs == 0:
         single_state = jax.tree_util.tree_map(lambda x: x[0], state)
-        metric_writer.add_scalar("train/loss", avg_metrics["train_loss"], state.step[0])
+        metric_writer.add_scalar("train/train_loss_step",           avg_metrics["train_loss_step"],     state.step[0])
+        metric_writer.add_scalar("grad/train/grad_min_step",        avg_metrics["grad_min"],            state.step[0])
+        metric_writer.add_scalar("grad/train/grad_mean_step",       avg_metrics["grad_mean"],           state.step[0])
+        metric_writer.add_scalar("grad/train/grad_median_step",     avg_metrics["grad_median"],         state.step[0])
+        metric_writer.add_scalar("grad/train/grad_max_step",        avg_metrics["grad_max"],            state.step[0])
         
         for gpu_stats in gpustat.new_query():
             log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
@@ -1069,12 +1073,12 @@ def validation_epoch_pmap(
             jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
     
 
-    print(f"Validation -- Epoch {epoch + 1} -- ValCorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e}")
+    print(f"Validation -- Epoch {epoch + 1} -- Loss {avg_metrics['val_loss_step'].item():.3e}")
     
     # 5) Logging & Checkpoints
     if epoch % configs.log_every_epochs == 0:
         single_state = jax.tree_util.tree_map(lambda x: x[0], state)
-        metric_writer.add_scalar("val/val_corrected_gamma_loss", avg_metrics["val_corrected_gamma_loss"].item(), state.step[0])
+        metric_writer.add_scalar("val/val_loss_step", avg_metrics["val_loss_step"].item(), state.step[0])
         
         for gpu_stats in gpustat.new_query():
             log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
