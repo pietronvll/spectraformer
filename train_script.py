@@ -319,6 +319,7 @@ if __name__ == "__main__":
         "my_layout": {
             "loss_step": ["Multiline", ["train/train_loss_step", "val/val_loss_step"]],
             "loss_epoch": ["Multiline", ["train/train_loss_epoch", "val/val_loss_epoch"]],
+            "wrong_loss_epoch": ["Multiline", ["train/train_loss_epoch", "train/val_loss_epoch"]],
             },
         }
     metric_writer.add_custom_scalars(layout)
@@ -399,8 +400,8 @@ if __name__ == "__main__":
         )
         
         # Log epoch-level averages
-        metric_writer.add_scalar("train/train_loss_epoch",  train_metrics[-1]["train_loss"],                epoch+1)
-        metric_writer.add_scalar("train/val_loss_epoch",    val_metrics[-1]["val_corrected_gamma_loss"],    epoch+1)
+        metric_writer.add_scalar("train/train_loss_epoch",  train_metrics[-1]["train_loss_step"],   epoch+1)
+        metric_writer.add_scalar("val/val_loss_epoch",    val_metrics[-1]["val_loss_step"],       epoch+1)
         
         
         print(f'\n==== Epoch {epoch+1} -- End ====\n')

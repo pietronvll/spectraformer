@@ -1,5 +1,7 @@
 #### May 07, 2025
-I have overreached 50 GB of space on franklin... By urgent cleaning I managed to start a server. Committing right now. Have to clean more models. And always keep 5 last checkpoints.
+I have overreached 50 GB of space on franklin... By urgent cleaning I managed to start a server. Committing right now. Have to clean more models. And always keep not all but only 5 last checkpoints.
+
+Started again **min47** training. For 300 epochs and 24 batch_size. In the meantime deleting all checkpoint steps except last 5 for every folder. After training it looks badly. Started training of **base48** again for 300 epochs 24 batch_size.
 
 #### May 6, 2025
 Looked at **min47**: after 100 epochs the unmixing performace is bad, probably will require more time to learn. But on loss graph it kinda reached saturation. Maybe LR schedule will help? Maybe change LR after N epochs instead of steps? Is it possible?
