@@ -985,20 +985,23 @@ def train_epoch_pmap(
             jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
     
 
-    print(f"Training -- Epoch {epoch+1} -- Loss {avg_metrics['train_loss_step']:.3e}")
+    print(f"Training -- Epoch {epoch} -- Loss {avg_metrics['train_loss_step']:.3e}")
 
-    # 5) Logging & Checkpoints
-    if epoch % configs.log_every_epochs == 0:
-        single_state = jax.tree_util.tree_map(lambda x: x[0], state)
-        metric_writer.add_scalar("train/train_loss_step",           avg_metrics["train_loss_step"],     state.step[0])
-        metric_writer.add_scalar("grad/train/grad_min_step",        avg_metrics["grad_min"],            state.step[0])
-        metric_writer.add_scalar("grad/train/grad_mean_step",       avg_metrics["grad_mean"],           state.step[0])
-        metric_writer.add_scalar("grad/train/grad_median_step",     avg_metrics["grad_median"],         state.step[0])
-        metric_writer.add_scalar("grad/train/grad_max_step",        avg_metrics["grad_max"],            state.step[0])
+    # # 5) Logging & Checkpoints
+    # if epoch % configs.log_every_epochs == 0:
+    #     single_state = jax.tree_util.tree_map(lambda x: x[0], state)
+    #     metric_writer.add_scalar("train/train_loss_step",           avg_metrics["train_loss_step"],     state.step[0])
+    #     metric_writer.add_scalar("grad/train/grad_min_step",        avg_metrics["grad_min"],            state.step[0])
+    #     metric_writer.add_scalar("grad/train/grad_mean_step",       avg_metrics["grad_mean"],           state.step[0])
+    #     metric_writer.add_scalar("grad/train/grad_median_step",     avg_metrics["grad_median"],         state.step[0])
+    #     metric_writer.add_scalar("grad/train/grad_max_step",        avg_metrics["grad_max"],            state.step[0])
         
-        for gpu_stats in gpustat.new_query():
-            log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
-        ckpt_manager.save(single_state.step, single_state)  
+    #     for gpu_stats in gpustat.new_query():
+    #         log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
+    #     ckpt_manager.save(
+    #         step=single_state.step,
+    #         items={"state": single_state}
+    #     ) 
     # print(f"avg_metrics: {avg_metrics}")
     return state, avg_metrics
 
@@ -1073,16 +1076,19 @@ def validation_epoch_pmap(
             jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
     
 
-    print(f"Validation -- Epoch {epoch + 1} -- Loss {avg_metrics['val_loss_step'].item():.3e}")
+    print(f"Validation -- Epoch {epoch} -- Loss {avg_metrics['val_loss_step'].item():.3e}")
     
-    # 5) Logging & Checkpoints
-    if epoch % configs.log_every_epochs == 0:
-        single_state = jax.tree_util.tree_map(lambda x: x[0], state)
-        metric_writer.add_scalar("val/val_loss_step", avg_metrics["val_loss_step"].item(), state.step[0])
+    # # 5) Logging & Checkpoints
+    # if epoch % configs.log_every_epochs == 0:
+    #     single_state = jax.tree_util.tree_map(lambda x: x[0], state)
+    #     metric_writer.add_scalar("val/val_loss_step", avg_metrics["val_loss_step"].item(), state.step[0])
         
-        for gpu_stats in gpustat.new_query():
-            log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
-        ckpt_manager.save(single_state.step, single_state)
+    #     for gpu_stats in gpustat.new_query():
+    #         log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
+    #     ckpt_manager.save(
+    #         step=single_state.step,
+    #         items={"state": single_state}
+    #     )
 
     return state, avg_metrics
 

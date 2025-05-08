@@ -1,3 +1,23 @@
+#### May 08, 2025
+I left the training overnight. It seems that **base48** didn't finish training... There are only 131 epochs on tensorboard and folders names are not the same with **min47**. So, 300-131=169. 
+
+
+I've noticed that the amount of epochs is not saved in checkpoint. Have to do it.
+
+
+Also maybe the performance is bad because of region overlapping for low-f and high-f datasets? Could it be better to do something about it? Let's try separate models for separate frequencies. I'll need to rearrange datasets for SiC into SiC-low-f and SiC-high-f.
+
+Ok the performance is veeery bad. Let's try another time with separated lowf and highf **min49** and **base50**. Deleting **min47** and **base48**.
+
+Performance is bad but still compatible with my first attempts for geometric mean. 
+
+
+*NOTE: it seems that bigger amount of cores for server is faster for calculations. So, those cores are not CPUs but GPU cores? But Volatile GPU-Util seems to be the same as before. Power consumption is biger.*
+
+
+Trained **min49** for 100 epochs. Figured out that epochs are not stored in checkpoint by having an error in streamlit. Fixing that. Deleted the model, started again 10 epochs for checking.
+
+
 #### May 07, 2025
 I have overreached 50 GB of space on franklin... By urgent cleaning I managed to start a server. Committing right now. Have to clean more models. And always keep not all but only 5 last checkpoints.
 

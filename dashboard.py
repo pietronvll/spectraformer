@@ -9,6 +9,9 @@ import xarray as xr
 from etils import epath
 from flax.training.train_state import TrainState
 
+class CustomTrainState(TrainState):
+    epoch: jax.Array
+
 from spectraformer.inference import plot_results, predict
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
@@ -123,10 +126,12 @@ def load_model(
         training=False,
     )
 
-    state = TrainState.create(
+    state = CustomTrainState.create(
         apply_fn=jax.jit(model.apply, static_argnames=("training",)),
         params=variables["params"],
         tx=tx,
+        epoch=jnp.array(0, dtype=jnp.int32),
+        # step=jnp.array(0, dtype=jnp.int32)
     )
     
     st.write("Restoring Weights")

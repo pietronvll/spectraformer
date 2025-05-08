@@ -1,3 +1,5 @@
+import gpustat
+
 from pathlib import Path
 from etils import epath
 
@@ -16,12 +18,20 @@ import orbax.checkpoint as ocp
 import xarray as xr
 from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
+
+class CustomTrainState(TrainState):
+    epoch: jax.Array
+
+@jax.pmap
+def update_epoch(state):
+    return state.replace(epoch=state.epoch + 1)
+
 from tensorboardX import SummaryWriter
 from dataclasses import replace
 
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset, dataset_loader
 from spectraformer.model import SpectraFormer
-from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap
+from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap, log_gpu_usage
 
 jax.config.update("jax_debug_nans", True)
 
@@ -35,7 +45,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "base48_GeomLoss_multidata"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min49_GeomLoss_multidata_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 training_regime = "All devices" # one from ["One device", "All devices"]
@@ -46,7 +56,7 @@ configsdir.mkdir(parents=True, exist_ok=True)
 config_file_name = f"configs_{model_tag}.yaml"
 config_file_path = configsdir / config_file_name
 
-material_name = "SiC"  # The directory name in parsed_data to load from
+material_name = "SiC-high-f"  # The directory name in parsed_data to load from
 parsed_datadir = datadir / "parsed_data"  # Change this to point to parsed_data
 
 # Find all .nc files in the material directory and its subdirectories
@@ -262,7 +272,7 @@ if __name__ == "__main__":
         training=True,
     )
     
-    state = TrainState.create(
+    state = CustomTrainState.create(
         # step=jnp.array(0, dtype=jnp.int32),
         
         # # Old implementation
@@ -273,7 +283,9 @@ if __name__ == "__main__":
         # # New implementation for training on different datasets at once - without jit
         apply_fn=model.apply,
         params=variables["params"],
-        tx=tx
+        tx=tx,
+        epoch=jnp.array(0, dtype=jnp.int32),
+        # step=jnp.array(0, dtype=jnp.int32)
     )
     # After state creation
     print("\nInitial step type:", type(state.step))  # Should be DeviceArray
@@ -300,13 +312,23 @@ if __name__ == "__main__":
         epath.Path(ckptdir / configs.tag / ".tmp").rmtree()
     
     if len(ckpt_manager.all_steps()) > 0:
-        state = ckpt_manager.restore(
-            ckpt_manager.latest_step(), args=ocp.args.StandardRestore(state)
+        # state = ckpt_manager.restore(
+        #     ckpt_manager.latest_step(), 
+        #     args=ocp.args.StandardRestore(state)
+        # )
+        restored = ckpt_manager.restore(
+            ckpt_manager.latest_step(),
+            args=ocp.args.StandardRestore({"state": state})
         )
-        print(f"Resuming training from step {state.step}.")
+        state = restored["state"]
+        print(f"Resuming from epoch {state.epoch}, step {state.step}")
+        # print("Restored step: ", state.step)
+        # print("Restored epoch: ", state.epoch)
+        
     else:
         print(f"No checkpoint found with tag {configs.tag}, training from scratch.")
-    
+    restored_epoch = state.epoch
+    print(f'Restored epoch: {restored_epoch}')
     metric_writer = SummaryWriter(logdir / configs.tag)
     rng_streams = {"dropout": dropout_key}
     mean_streams = {"mean": "Not specified" if not hasattr(configs, 'mean') else configs.mean}
@@ -319,7 +341,6 @@ if __name__ == "__main__":
         "my_layout": {
             "loss_step": ["Multiline", ["train/train_loss_step", "val/val_loss_step"]],
             "loss_epoch": ["Multiline", ["train/train_loss_epoch", "val/val_loss_epoch"]],
-            "wrong_loss_epoch": ["Multiline", ["train/train_loss_epoch", "train/val_loss_epoch"]],
             },
         }
     metric_writer.add_custom_scalars(layout)
@@ -329,9 +350,11 @@ if __name__ == "__main__":
     ####################################################################################################
     state = jax.device_put_replicated(state, jax.devices())
     print(f"\n===DEBUGGING===          Replicated step shape before main loop: {jnp.shape(state.step)}\n")  # (num_devices,)
-    for epoch in range(configs.num_epochs):
+    print(f"\n===DEBUGGING===          Replicated epoch shape before main loop: {jnp.shape(state.epoch)}\n")  # (num_devices,)
+
+    for epoch in range(restored_epoch + 1, restored_epoch + configs.num_epochs + 1):
         
-        print(f'\n==== Epoch {epoch+1} -- Begin ====\n')
+        print(f'\n==== Epoch {epoch} -- Begin ====\n')
         
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
@@ -387,6 +410,7 @@ if __name__ == "__main__":
             epoch_train_metrics.append(train_metrics_ds)
             epoch_val_metrics.append(val_metrics_ds)
             
+            
             # # Early stop (?)
             # early_stop = early_stop.update(metrics["loss"])
             # if early_stop.should_stop:
@@ -399,15 +423,39 @@ if __name__ == "__main__":
             jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
         )
         
+        state = update_epoch(state)
+        
         # Log epoch-level averages
-        metric_writer.add_scalar("train/train_loss_epoch",  train_metrics[-1]["train_loss_step"],   epoch+1)
-        metric_writer.add_scalar("val/val_loss_epoch",    val_metrics[-1]["val_loss_step"],       epoch+1)
         
         
-        print(f'\n==== Epoch {epoch+1} -- End ====\n')
-    # Need to save metrics to the writer
-    train_metrics = stack_forest(train_metrics)
-    val_metrics = stack_forest(val_metrics)
+        # Log step-level averages
+        if epoch % configs.log_every_epochs == 0:
+            metric_writer.add_scalar("train/train_loss_epoch",          train_metrics[-1]["train_loss_step"],   state.epoch[0])
+            metric_writer.add_scalar("val/val_loss_epoch",              val_metrics[-1]["val_loss_step"],       state.epoch[0])
+            
+            metric_writer.add_scalar("train/train_loss_step",           train_metrics[-1]["train_loss_step"],   state.step[0])
+            metric_writer.add_scalar("val/val_loss_step",               val_metrics[-1]["val_loss_step"],       state.step[0])
+            
+            metric_writer.add_scalar("grad/train/grad_min_step",        train_metrics[-1]["grad_min"],          state.step[0])
+            metric_writer.add_scalar("grad/train/grad_mean_step",       train_metrics[-1]["grad_mean"],         state.step[0])
+            metric_writer.add_scalar("grad/train/grad_median_step",     train_metrics[-1]["grad_median"],       state.step[0])
+            metric_writer.add_scalar("grad/train/grad_max_step",        train_metrics[-1]["grad_max"],          state.step[0])
+            
+            
+            
+            for gpu_stats in gpustat.new_query():
+                log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
+            
+            single_state = jax.tree_util.tree_map(lambda x: x[0], state)
+            ckpt_manager.save(
+                step=single_state.step,
+                items={"state": single_state}
+            )
+        print(f'\n==== Epoch {epoch} -- End ====\n')
+        
+    # # Need to save metrics to the writer
+    # train_metrics = stack_forest(train_metrics)
+    # val_metrics = stack_forest(val_metrics)
     
     ckpt_manager.wait_until_finished()
     metric_writer.close()
