@@ -1,3 +1,6 @@
+#### May 09, 2025
+**Base50** didn't finish its job - last epoch is 65. Ok, let's continue with another 600-65=535 epochs.
+
 #### May 08, 2025
 I left the training overnight. It seems that **base48** didn't finish training... There are only 131 epochs on tensorboard and folders names are not the same with **min47**. So, 300-131=169. 
 
@@ -16,6 +19,8 @@ Performance is bad but still compatible with my first attempts for geometric mea
 
 
 Trained **min49** for 100 epochs. Figured out that epochs are not stored in checkpoint by having an error in streamlit. Fixing that. Deleted the model, started again 10 epochs for checking.
+
+Trained **min49** for 600 epochs in total. Left training of **base50** overnight.
 
 
 #### May 07, 2025

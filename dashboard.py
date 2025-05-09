@@ -1,4 +1,5 @@
 import jax
+import jax.numpy as jnp
 jax.config.update("jax_platform_name", "cpu")
 import flax.linen as nn
 import ml_confs
@@ -137,15 +138,29 @@ def load_model(
     st.write("Restoring Weights")
     match step_choise_tag:
         case 'Latest':
-            state = ckpt_manager.restore(
-            ckpt_manager.latest_step(), 
-            args=ocp.args.StandardRestore(state)
-            )
+            try:
+                restored = ckpt_manager.restore(
+                    ckpt_manager.latest_step(),
+                    args=ocp.args.StandardRestore({"state": state})
+                )
+                state = restored["state"]
+            except ValueError:
+                old_state = TrainState.create(
+                        apply_fn=model.apply,
+                        params=variables["params"],
+                        tx=tx
+                        )
+                state = old_state
+                state = ckpt_manager.restore(
+                        ckpt_manager.latest_step(), 
+                        args=ocp.args.StandardRestore(state)
+                        )
         case 'Desired':
-            state = ckpt_manager.restore(
-            desired_step, 
-            args=ocp.args.StandardRestore(state)
+            restored = ckpt_manager.restore(
+            desired_step,
+            args=ocp.args.StandardRestore({"state": state})
             )
+            state = restored["state"]
         case _:
             st.write("SOMETHING WENT WRONG")
     
@@ -204,7 +219,13 @@ if current_model_tag is not None:
     st.write(f"Explore Predictions on `{current_dataset_tag}`")
     data_idx = st.slider("", 1, len(spectraformer_predictions), value=1)
     fig, ax = plot_results(spectraformer_predictions[data_idx])
-    ax.set_title(current_model_tag)
+    if hasattr(state, 'epoch'):
+        ax.set_title(f'{current_model_tag}\nStep {state.step} -- Epoch {state.epoch}\nDataset {current_dataset_tag}', fontsize='x-large')
+    else: ax.set_title(f'{current_model_tag}\nStep {state.step} -- Epoch [NOT RECORDED]\nDataset {current_dataset_tag}', fontsize='x-large')
+    
+    ax.set_xlabel("Raman shift, $cm^{-1}$", fontsize='x-large')
+    ax.set_ylabel("Intensity, a.u.", fontsize='x-large')
+    ax.tick_params(axis='both', which='major', labelsize='x-large')
     st.pyplot(fig)
     
     # Summary table
