@@ -1,3 +1,21 @@
+#### May 19, 2025
+
+**min51** is trained for 1078 epochs, but it should be for 1200. So I started another training for 122 epochs.
+
+Also Franklin is going to be shut down for 20-24 May. Committing now.
+
+
+#### May 13, 2025
+I have trained **min51** for 600 epochs with multiple cosine decay. Now I've tried to change N of cycles to be not 100 but 20. With decay coefficient 0.8 my LR will be 0.011529215 times smaller (1.00E-03 => 1.15E-05), so 2 o.o.m. smaler.
+
+This worked to start another training session for 600 epochs. Let's see. 
+
+But in principle -- LR Schedule is better than Constant LR. But up to some point I guess, otherwise LR will be too small to significantly adjust model weights.
+
+**Base50** is trained for 572 epochs. Performance is absolutely the worst I saw. No meaningful predictions at all.
+
+
+
 #### May 09, 2025
 **Base50** didn't finish its job - last epoch is 65. Ok, let's continue with another 600-65=535 epochs.
 
