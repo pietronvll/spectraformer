@@ -634,10 +634,10 @@ def train_step_pmap_geometric(
     # print(f"dropout_train_key: {dropout_train_key}")
     
     def my_geometric_mean(loss, eps=1e-8):
-            non_negative = abs(loss)
-            clipped = jnp.clip(non_negative, eps)
-            mean_log = jnp.mean(jnp.log(clipped))
-            return jnp.exp(mean_log)
+        non_negative = abs(loss)
+        clipped = jnp.clip(non_negative, eps)
+        mean_log = jnp.mean(jnp.log(clipped))
+        return jnp.exp(mean_log)
     
     def corrected_gamma_loss_fn(params):
         pred_spectra = state.apply_fn(
@@ -768,10 +768,10 @@ def validation_step_pmap_geometric(
     # dropout_train_key = jax.random.fold_in(device_key, state.step)
     
     def my_geometric_mean(loss, eps=1e-8):
-            non_negative = abs(loss)
-            clipped = jnp.clip(non_negative, eps)
-            mean_log = jnp.mean(jnp.log(clipped))
-            return jnp.exp(mean_log)
+        non_negative = abs(loss)
+        clipped = jnp.clip(non_negative, eps)
+        mean_log = jnp.mean(jnp.log(clipped))
+        return jnp.exp(mean_log)
     
     # Local loss per device function
     def corrected_gamma_loss_fn(params):
