@@ -183,7 +183,7 @@ def load_model(
 
 st.title("Spectraformer dashboard")
 
-current_dataset_tag = st.selectbox("Select dataset (from mixtures folder):", available_datasets, index=None)
+current_dataset_tag = st.selectbox("Select dataset (from mixtures folder):", available_datasets, index=2)
 
 available_mask_start = [1400,1500,1600,1660,1700,1800,1900,2000]
 current_mask_start_tag = st.selectbox("Select left window boundary:", available_mask_start, index=3)

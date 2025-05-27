@@ -1,3 +1,16 @@
+#### May 27, 2025
+
+Trained **min51** for another 600 epochs (1800 in total) didn't provide me any significant improvement in prediction by eye. Before leaving yesterday I run **min52** in which I reduced number of cycles for LR decay from 20 to 15, and increased embedding dimension x2 (from 64 to 128). But it seems that it was trained only for 50 epochs, why is that - a mystery. I asked for 600. So, fine, let's continue its training.
+
+#### May 26, 2025
+
+Franklin is back, and so do I.
+**min51** is trained for 1200 epochs. Let's run another 600 and see what's the difference. The model seems to diverge into some loss minima with barely recognizible negative slope. Maybe 20 cycles is too much for LR reduction? And now to fine-tune it requires much more steps?
+
+Anyway after that I would like to train a min-configuration model but with enlarged embedding dimension. Because the experiment of rapid increase of all parameters (min -> base) showed that for the same training larger model could not tune itself enough to perform at comparable level. So, maybe just embedding dimension enlargement will show an effect sooner.
+
+And I think I really need to figure out how to stage the job on Franklin properly via command prompt. I want to ask a better gpu-equipped node (anode) than this interactive environment. Here I have 4 x NVIDIA Tesla V100 16Gb (really Tesla V100-SXM2-32GB -- why does their own wiki wrong??) but I would like to try 8 x NVIDIA Ampere A100 80Gb.
+
 #### May 19, 2025
 
 **min51** is trained for 1078 epochs, but it should be for 1200. So I started another training for 122 epochs.
@@ -33,7 +46,7 @@ Ok the performance is veeery bad. Let's try another time with separated lowf and
 Performance is bad but still compatible with my first attempts for geometric mean. 
 
 
-*NOTE: it seems that bigger amount of cores for server is faster for calculations. So, those cores are not CPUs but GPU cores? But Volatile GPU-Util seems to be the same as before. Power consumption is biger.*
+*NOTE: it seems that bigger amount of cores for server is faster for calculations. So, those cores are not CPUs but GPU cores? But Volatile GPU-Util seems to be the same as before. Power consumption is bigger.*
 
 
 Trained **min49** for 100 epochs. Figured out that epochs are not stored in checkpoint by having an error in streamlit. Fixing that. Deleted the model, started again 10 epochs for checking.
