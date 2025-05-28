@@ -1,3 +1,26 @@
+#### May 28, 2025
+
+After yesterday's meeting today I've implemented also arithmetic loss logic, and cleaned the code a bit from some debugging printing and unnecessary checks. Run **min53** with default min-model settings. Today Franklin gave me not 4 but 2 GPUs in interactive environment. And it seems that arithmetic average is so faster that 2 GPU Arithmetic is faster than 4 GPUs Geometric. Wow. Not only that, the model is actually capturing general features within masked region! And the loss is comparable with one of the **min23** - my previous best result (printed on a poster).
+
+
+To-do:
+1. Finish the training of **min53** that is 600 epochs.
+2. Train another base-model with arithmetic loss for 600 epochs as well to see the difference in feature capturing and/or convergence speed.
+3. Maybe ask for more Raman data? Different substrate?
+4. Maybe introduce stopping mechanism of over-learning train data? Because I can see now from epoch ~140 train loss goes lower while validation loss is staying still or going slightly up. There is a cross section of train loss and validation loss.
+
+
+UPD: yes, as i was afraid, the model is over-fitting. I've aborted the process. I can clearly see that its performanse becomes worse. Anyway, I consider this as a huge success for today. Still, by comparing **min23** and **min53** I see that **min23** is predicting better with lower subtraction noise. But why is that? Has it reached a different local minimum? Maybe training a different model will give me an answer.
+
+
+Wait, **min23** should've had constant LR, but **min53** - LR schedule with 15 cycles (1.00e-03 --> 3.52e-05). Maybe that's the issue - I reduce LR too rapidly. Let's decrease with decline_coeff=0.9 not 0.8 ? For 15 cycles it will go (1.00e-03 --> 2.06e-04). Ok, let's see it on **min54** for 150 epochs.
+
+
+Ok, the performance is kinda ok. Let's train for another 50 epochs (200 in total). Despite the fact that train loss has overcame val loss.
+
+
+Let me continue let's say with another 100 epochs just to see what will be the behavior of prediction. But so, a general conclusion could be that this crossing point is a bad indicator of model finishing learning? Or the loss function should be reconsidered?! Maybe it is fine, anyway it is not adjusting itself to minimise the pure difference but more complicated loss function.
+
 #### May 27, 2025
 
 Trained **min51** for another 600 epochs (1800 in total) didn't provide me any significant improvement in prediction by eye. Before leaving yesterday I run **min52** in which I reduced number of cycles for LR decay from 20 to 15, and increased embedding dimension x2 (from 64 to 128). But it seems that it was trained only for 50 epochs, why is that - a mystery. I asked for 600. So, fine, let's continue its training.
