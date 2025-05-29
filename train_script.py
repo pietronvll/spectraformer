@@ -18,6 +18,7 @@ import orbax.checkpoint as ocp
 # import xarray as xr
 # from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
+from flax.training.early_stopping import EarlyStopping
 
 class CustomTrainState(TrainState):
     epoch: jax.Array
@@ -45,8 +46,12 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min54_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min56_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
+
+is_early_stop = True # turning on early stopping process
+min_delta = 1e-4
+patience = 20
 
 training_regime = "All devices" # one from ["One device", "All devices"]
 
@@ -187,7 +192,7 @@ if __name__ == "__main__":
     # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(
         #----------------------------------------------------------------------------------------------------#
-        max_to_keep=5
+        max_to_keep=patience+1 # this is for having best model in case of training process only worsens the loss
         #----------------------------------------------------------------------------------------------------#
         )
     
@@ -222,7 +227,10 @@ if __name__ == "__main__":
     metric_writer = SummaryWriter(logdir / configs.tag)
     rng_streams = {"dropout": dropout_key}
     mean_streams = {"mean": "Not specified" if not hasattr(configs, 'mean') else configs.mean}
-    # early_stop = EarlyStopping(min_delta=1e-3, patience=2)
+    
+    # Early stopping initialization
+    early_stop = EarlyStopping(min_delta=min_delta, patience=patience)
+    
     train_metrics = []
     val_metrics = []
     
@@ -247,6 +255,8 @@ if __name__ == "__main__":
         
         print(f'\n==== Epoch {epoch} -- Begin ====\n')
         
+        # Restoring early stop ???
+        
         # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
         
@@ -259,9 +269,8 @@ if __name__ == "__main__":
         print('Dataset order: ',dataset_order)
         
         for ds_idx in dataset_order:
-            print('Dataset number: ', ds_idx)
             train_ds, val_ds = datasets[ds_idx]
-            print(f'Train dataset lenght: {train_ds.shape[1]}, Val dataset lenght: {val_ds.shape[1]}')
+            print(f'Dataset number: {ds_idx}, Train dataset lenght: {train_ds.shape[1]}, Val dataset lenght: {val_ds.shape[1]}')
             
             match training_regime:
                 case "One device":
@@ -293,19 +302,27 @@ if __name__ == "__main__":
             
             epoch_train_metrics.append(train_metrics_ds)
             epoch_val_metrics.append(val_metrics_ds)
-            
-            
-            # # Early stop (?)
-            # early_stop = early_stop.update(metrics["loss"])
-            # if early_stop.should_stop:
-            #     print(f"Met early stopping criteria, breaking at epoch {epoch}")
-            #     break
+        
+        # print(f"epoch_train_metrics: {epoch_train_metrics['train_loss_step']}")
+        # print(f"epoch_val_metrics: {epoch_val_metrics['val_loss_step']}")
+        
+        
         train_metrics.append(
             jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_train_metrics)
         )
         val_metrics.append(
             jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
         )
+        
+        # Early stop
+        early_stop = early_stop.update(val_metrics[-1]["val_loss_step"])
+        best_metric_value = min(metric["val_loss_step"] for metric in val_metrics)
+        metrics_difference = best_metric_value - val_metrics[-1]["val_loss_step"]
+        print(f"\n==== Metrics difference w.r.t. the best value: {metrics_difference:.5e} ==== Patience count {early_stop.patience_count}\n")
+        if is_early_stop and early_stop.should_stop:
+            print(f"Met early stopping criteria, breaking at epoch {epoch}. Last saved epoch is {epoch-1}.")
+            break
+        
         # Write epoch+1 to the state
         state = update_epoch(state)
         # Logging

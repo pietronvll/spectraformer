@@ -1,3 +1,14 @@
+#### May 29, 2025
+
+Ok, the switch to arithmetic mean worked. But now there is an issue with overfitting. Implementing early stop mechanism. Deleting overfitted models **min53** and **min54**.
+Also **min51** and **min52** are useless since they are overfitted in the mask-free region.
+Also **min27**, **min29**, **min30**.
+Also **base50** - anyway it performs not good.
+
+
+Ok I did the early stopping. I have to adjust its parameters. Playing with **min56** for that.
+
+
 #### May 28, 2025
 
 After yesterday's meeting today I've implemented also arithmetic loss logic, and cleaned the code a bit from some debugging printing and unnecessary checks. Run **min53** with default min-model settings. Today Franklin gave me not 4 but 2 GPUs in interactive environment. And it seems that arithmetic average is so faster that 2 GPU Arithmetic is faster than 4 GPUs Geometric. Wow. Not only that, the model is actually capturing general features within masked region! And the loss is comparable with one of the **min23** - my previous best result (printed on a poster).
