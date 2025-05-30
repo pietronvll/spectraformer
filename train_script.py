@@ -46,12 +46,10 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min56_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min57_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
-is_early_stop = True # turning on early stopping process
-min_delta = 1e-4
-patience = 20
+
 
 training_regime = "All devices" # one from ["One device", "All devices"]
 
@@ -75,6 +73,9 @@ if __name__ == "__main__":
     
     configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
+    is_early_stop = True if not hasattr(configs, 'is_early_stop') else configs.is_early_stop # turning on early stopping process
+    min_delta = 1e-4 if not hasattr(configs, 'early_stop_min_delta') else configs.early_stop_min_delta
+    patience = 5 if not hasattr(configs, 'early_stop_patience') else configs.early_stop_patience
     
     if training_regime=="All devices" and configs.batch_size % num_devices !=0:
         raise Exception(f"Sharding requires batch size divisibility by the number of devices. Change it accordingly (preferably to 24).")
@@ -82,7 +83,7 @@ if __name__ == "__main__":
     # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
     cosine_kwargs = []
     
-    init_value = 0.1*configs.learning_rate
+    init_value = 0.1*configs.learning_rate if not hasattr(configs, 'warmup_coeff') else configs.warmup_coeff*configs.learning_rate
     peak_value = configs.learning_rate
     warmup_steps = 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps
     decay_steps = 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps
@@ -308,10 +309,10 @@ if __name__ == "__main__":
         
         
         train_metrics.append(
-            jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_train_metrics)
+            jax.tree.map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_train_metrics)
         )
         val_metrics.append(
-            jax.tree_map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
+            jax.tree.map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
         )
         
         # Early stop

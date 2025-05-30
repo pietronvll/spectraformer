@@ -1,17 +1,23 @@
-tag: "spectraformer:min56_ArithmLoss_multidata_highf_LRschedule"
+tag: "spectraformer:min57_ArithmLoss_multidata_highf_LRschedule"
 
 #                  Min:             Base:
 # embedding_dim:     64              256
 # num_heads:          8               16
 # num_layers:         2                8
 
+# Min:
 embedding_dim: 64
 num_heads: 8
 num_layers: 2
 
+# # Base:
+# embedding_dim: 256
+# num_heads: 16
+# num_layers: 8
+
 learning_rate: 1e-3
 learning_rate_decay: "Multiple cosine decay cycles" # one from the list ["Multiple cosine decay cycles","Constant"]
-warmup_coeff: 0.1 # multiplier before peak_value
+warmup_coeff: 1 # multiplier before peak_value
 warmup_steps: 2250
 decay_steps: 4500
 
@@ -32,3 +38,8 @@ masked_interval_ends: [1660, 2900]
 random_mask: False
 
 mean: 'Arithmetic' # one from the list ['Arithmetic', 'Geometric']
+
+# Early stop
+is_early_stop: True
+early_stop_min_delta: 1e-4
+early_stop_patience: 5 # it's also in CheckpointManagerOptions: max_to_keep = early_stop_patience + 1

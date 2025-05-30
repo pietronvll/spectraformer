@@ -365,7 +365,7 @@ def train_epoch(
         metrics.append(batch_metrics)
 
     metrics = stack_forest(metrics)
-    avg_metrics = jax.tree_map(jnp.mean, metrics)  # Log the average error of the epoch
+    avg_metrics = jax.tree.map(jnp.mean, metrics)  # Log the average error of the epoch
 
     print(f"Epoch {epoch + 1} -- Loss {avg_metrics['train_loss'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
@@ -398,7 +398,7 @@ def validation_epoch(
         metrics.append(batch_metrics)
 
     metrics = stack_forest(metrics)
-    avg_metrics = jax.tree_map(jnp.mean, metrics)  # Log the average error of the epoch
+    avg_metrics = jax.tree.map(jnp.mean, metrics)  # Log the average error of the epoch
 
     print(f"Validation -- Epoch {epoch + 1} -- CorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
@@ -462,7 +462,7 @@ def train_step_pmap_arithmetic(
     # Average loss across devices
     global_loss = lax.psum(local_loss, axis_name="batch") / num_devices 
     # Average gradients across devices
-    final_grads = jax.tree_map(lambda g: lax.psum(g, axis_name="batch") / num_devices, local_grads)
+    final_grads = jax.tree.map(lambda g: lax.psum(g, axis_name="batch") / num_devices, local_grads)
     
     # Check final_grads for NaNs, Infs
     flat_grads, _ = jax.tree_util.tree_flatten(final_grads)
@@ -609,8 +609,8 @@ def train_step_pmap_geometric(
     
     weights = (global_loss / local_loss) / num_devices  # shape: scalar per device
     
-    weighted_grads = jax.tree_map(lambda g: g * weights, local_grads)
-    final_grads = jax.tree_map(lambda wg: lax.psum(wg, axis_name="batch"), weighted_grads)
+    weighted_grads = jax.tree.map(lambda g: g * weights, local_grads)
+    final_grads = jax.tree.map(lambda wg: lax.psum(wg, axis_name="batch"), weighted_grads)
     
     # Check final_grads for NaNs, Infs
     flat_grads, _ = jax.tree_util.tree_flatten(final_grads)
@@ -769,7 +769,7 @@ def train_epoch_pmap(
         # def verify_pmap_inputs(state, batch, dropout_key):
         #     """Ensure all inputs have rank ≥ 1"""
         #     # Check TrainState
-        #     # state_shapes = jax.tree_map(lambda x: x.shape if hasattr(x, 'shape') else None, state)
+        #     # state_shapes = jax.tree.map(lambda x: x.shape if hasattr(x, 'shape') else None, state)
         #     # print("State shapes:", state_shapes)
             
         #     # Check batch
@@ -784,8 +784,8 @@ def train_epoch_pmap(
         #         if hasattr(x, 'ndim') and x.ndim == 0:
         #             raise ValueError(f"{name} is scalar! Shape: {x.shape}")
             
-        #     # jax.tree_map(lambda x: assert_rank("State field", x), state)
-        #     jax.tree_map(lambda x: assert_rank("Batch field", x), batch)
+        #     # jax.tree.map(lambda x: assert_rank("State field", x), state)
+        #     jax.tree.map(lambda x: assert_rank("Batch field", x), batch)
         #     assert_rank("Dropout key", dropout_key)
 
         # Usage before compilation:

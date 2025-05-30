@@ -1,3 +1,23 @@
+#### May 30, 2025
+
+I guess the main reason why the loss can go up during the training (and, therefore, triggering the patience mechanism) - is the LR schedule. In particular, its "warm-up" part. Let,s try to put warm-up steps to zero? No. I'm introducing configs.warmup_coeff, where its value is a multiplier of peak value. Also added back compatibility with default value 0.1. 
+
+Let's try it with **min57** with 3 GPUs of today. And let's keep maybe 5 last checkpoints not to make a lot of them for space issues. 
+
+Graph for LRdecay now (sketchy):
+_______   -> LR
+        \
+         \
+          \ _______   -> 0.9 * LR
+                    \
+                     \
+                      \ _______   -> 0.9 * 0.9 * LR , etc.
+
+Also added in config all early stop settings.
+
+Also replaced jax.tree_map -> jax.tree.map, because of a warning.
+
+
 #### May 29, 2025
 
 Ok, the switch to arithmetic mean worked. But now there is an issue with overfitting. Implementing early stop mechanism. Deleting overfitted models **min53** and **min54**.
