@@ -89,8 +89,13 @@ def preprocess_dataset(
     
     if is_filter:
         # Apply Savitzky-Golay filter to smooth the dataset
-        dataset = dataset.map_blocks(
-            lambda x: savgol_filter(x, window_length=7, polyorder=2, axis=-1)
+        dataset = xr.apply_ufunc(
+            lambda x: savgol_filter(x, window_length=7, polyorder=2, axis=-1),
+            dataset,
+            input_core_dims=[["wave_number"]],
+            output_core_dims=[["wave_number"]],
+            output_dtypes=[dataset.dtype],
+            keep_attrs=True,
         )
     
     match option:
