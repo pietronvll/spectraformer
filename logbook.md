@@ -1,3 +1,9 @@
+#### Jun 04, 2025
+
+Played around with savgol filter. Included it in the training process. Trained **min58**. It looks like filtering doesn't help to resolve overfitting issue. 
+One possible solution could be acquiring more data. Can I do both unfiltered and filtered? Let's try on **min59**.
+
+
 #### May 30, 2025
 
 I guess the main reason why the loss can go up during the training (and, therefore, triggering the patience mechanism) - is the LR schedule. In particular, its "warm-up" part. Let,s try to put warm-up steps to zero? No. I'm introducing configs.warmup_coeff, where its value is a multiplier of peak value. Also added back compatibility with default value 0.1. 

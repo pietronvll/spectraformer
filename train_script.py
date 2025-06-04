@@ -46,7 +46,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "micro59_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min59_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -135,6 +135,7 @@ if __name__ == "__main__":
     
     # New automatic dataset loading
     datasets = []
+    # No filtering load
     for nc_file in nc_files:
         # Get relative path from datadir (e.g., "SiC/subdir/filename.nc")
         relative_path = nc_file.relative_to(parsed_datadir)
@@ -143,11 +144,27 @@ if __name__ == "__main__":
             datadir=parsed_datadir,
             file_location_with_name=str(relative_path),
             shuffle_rng_seed=configs.root_rng_seed,
-            is_filter=configs.is_filter if hasattr(configs, 'is_filter') else False
+            is_filter=False
         )
         # Load only those, who is large enough to be treated in parallel
         if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
             datasets.append((train_ds, val_ds))
+    
+    #  Filtering load - only if filtering is set (to not double-load same data)
+    if hasattr(configs, 'is_filter') and configs.is_filter:
+        for nc_file in nc_files:
+            # Get relative path from datadir (e.g., "SiC/subdir/filename.nc")
+            relative_path = nc_file.relative_to(parsed_datadir)
+            
+            train_ds, val_ds = dataset_loader(
+                datadir=parsed_datadir,
+                file_location_with_name=str(relative_path),
+                shuffle_rng_seed=configs.root_rng_seed,
+                is_filter=configs.is_filter if hasattr(configs, 'is_filter') else False
+            )
+            # Load only those, who is large enough to be treated in parallel
+            if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
+                datasets.append((train_ds, val_ds))
 
     print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====\n")
     
