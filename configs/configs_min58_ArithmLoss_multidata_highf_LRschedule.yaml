@@ -1,4 +1,4 @@
-tag: "spectraformer:min57_ArithmLoss_multidata_highf_LRschedule"
+tag: "spectraformer:min58_ArithmLoss_multidata_highf_LRschedule"
 
 #                  Min:             Base:
 # embedding_dim:     64              256
@@ -45,4 +45,4 @@ early_stop_min_delta: 1e-4
 early_stop_patience: 5 # it's also in CheckpointManagerOptions: max_to_keep = early_stop_patience + 1
 
 # Filtering data before preprocessing?
-is_filter: False
+is_filter: True

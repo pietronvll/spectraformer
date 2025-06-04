@@ -5,12 +5,14 @@ import jax.numpy as jnp
 import numpy as np
 import xarray as xr
 
+from scipy.signal import savgol_filter
 
 def preprocess_dataset(
     dataset: xr.DataArray,
     bg_removal_window: tuple = (2200, 2500),
     sup_norm_threshold: float = 0.15,
     verbose: bool = True,
+    is_filter: bool = False,
     option: str = 'proper_bg_proper_norm'
 ) -> xr.DataArray:
     """Preprocess xarray datasets by subtracting the background, normalizing to the max and removing outliers, i.e. spectra with cosmic rays or other artifacts.
@@ -84,6 +86,12 @@ def preprocess_dataset(
         if verbose:
             print(f"Dropped {num_spectra - len(filtered_dataset.spectra)} spectra")
         return filtered_dataset
+    
+    if is_filter:
+        # Apply Savitzky-Golay filter to smooth the dataset
+        dataset = dataset.map_blocks(
+            lambda x: savgol_filter(x, window_length=7, polyorder=2, axis=-1)
+        )
     
     match option:
         case 'bg_maxnorm':
@@ -286,7 +294,8 @@ def dataset_loader(
     datadir,
     file_location_with_name: str,
     shuffle_rng_seed,
-    split_fraction: float = 0.8
+    split_fraction: float = 0.8,
+    is_filter: bool = False
 ):
     """Load the dataset and return the train and validation datasets.
 
@@ -305,7 +314,7 @@ def dataset_loader(
     # Load the full dataset
     print(f"\n----- Loading dataset {file_location_with_name}. -----\n")
     full_ds = preprocess_dataset(
-        xr.load_dataarray(datadir / file_location_with_name)
+        xr.load_dataarray(datadir / file_location_with_name), is_filter=is_filter
     )
     print("Original dataset dimensions:", full_ds.dims)  # Should show (wave_number, spectra)
     # Get number of spectra samples
