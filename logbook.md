@@ -1,3 +1,15 @@
+#### Jun 05, 2025
+
+Today 4 GPUs.
+
+Fictional doubling of the data amount worked quite fine. The model during training has reached lower loss value and by-eye has captured closer main broad SiC features. But there are signs of over-training: with more epochs difference between train_loss and val_loss is decreasing, tending more towards crossing point. It also can be seen by eye of loosing some features.
+
+For experiment let's overtrain **min59** to confirm loosing captured features.
+
+And maybe let's train even smaller model? For debugging I made **micro59** model config. Let's try training it with quasi-doubled data on Franklin.
+
+I wonder if I need to make plots per epoch and store them in tensorboard, would it be useful? Like the one on the dashboard and log_loss-wavenumber. Implementing it with **min60**.
+
 #### Jun 04, 2025
 
 Played around with savgol filter. Included it in the training process. Trained **min58**. It looks like filtering doesn't help to resolve overfitting issue. 
@@ -6,7 +18,7 @@ One possible solution could be acquiring more data. Can I do both unfiltered and
 
 #### May 30, 2025
 
-I guess the main reason why the loss can go up during the training (and, therefore, triggering the patience mechanism) - is the LR schedule. In particular, its "warm-up" part. Let,s try to put warm-up steps to zero? No. I'm introducing configs.warmup_coeff, where its value is a multiplier of peak value. Also added back compatibility with default value 0.1. 
+I guess the main reason why the loss can go up during the training (and, therefore, triggering the patience mechanism) - is the LR schedule. In particular, its "warm-up" part. Let's try to put warm-up steps to zero? No. I'm introducing configs.warmup_coeff, where its value is a multiplier of peak value. Also added back compatibility with default value 0.1. 
 
 Let's try it with **min57** with 3 GPUs of today. And let's keep maybe 5 last checkpoints not to make a lot of them for space issues. 
 

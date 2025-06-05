@@ -33,6 +33,7 @@ from tensorboardX import SummaryWriter
 from spectraformer.input_pipeline import batch_sampler, dataset_loader #, preprocess_dataset
 from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap, log_gpu_usage
+from spectraformer.inference import plot_results_train, predict, plot_loss
 
 jax.config.update("jax_debug_nans", True)
 
@@ -46,7 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min59_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min60_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -173,6 +174,9 @@ if __name__ == "__main__":
     )
     
     dummy_example = next(batch_sampler(datasets[0][0], mask_windows, batch_size=1))
+    dummy_wave_number = jnp.squeeze(dummy_example["wave_number"])
+    
+    print(dummy_wave_number)
     print(f"\nDummy example -- Train dataset of length {len(datasets[0][0].spectra)} with leaves of shape:")
     for k, v in dummy_example.items():
         print(f"  {k} -> {v.shape}")
@@ -262,6 +266,8 @@ if __name__ == "__main__":
         }
     metric_writer.add_custom_scalars(layout)
     
+    # metric_writer.add_graph(model=model)
+    
     ####################################################################################################
     # Training & metrics calculation section
     ####################################################################################################
@@ -344,8 +350,40 @@ if __name__ == "__main__":
         
         # Write epoch+1 to the state
         state = update_epoch(state)
+        
+        
         # Logging
         if epoch % configs.log_every_epochs == 0:
+            
+            params0 = jax.tree.map(lambda x: x[0], state.params)
+            
+            # Making a prediction on a dummy for logging in tensorboard
+            dummy_prediction = predict(
+                state.apply_fn,
+                {"params": params0},
+                dummy_example,
+                dummy_example["mask"],
+            )
+            
+            # Calculating a loss for plotting
+            dummy_spectra = jnp.squeeze(dummy_example["spectra"])
+            dummy_pred_spectra = jnp.squeeze(dummy_prediction["predicted_spectra"])
+            dummy_ratio = dummy_spectra / dummy_pred_spectra
+            
+            loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
+            
+            # Making a plot as in a dashboard
+            fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], model_tag)
+            metric_writer.add_figure('model_predictions', fig_res, global_step=state.epoch[0])
+            
+            # print(dummy_wave_number)
+            # print(loss)
+            # print(dummy_example["spectra"])
+            # print(dummy_prediction["predicted_spectra"])
+            
+            fig_loss, ax_loss = plot_loss(dummy_wave_number, loss, state.step[0], state.epoch[0], model_tag)
+            metric_writer.add_figure('model_prediction_losses', fig_loss, global_step=state.epoch[0])
+            
             metric_writer.add_scalar("train/train_loss_epoch",          train_metrics[-1]["train_loss_step"],   state.epoch[0])
             metric_writer.add_scalar("val/val_loss_epoch",              val_metrics[-1]["val_loss_step"],       state.epoch[0])
             
