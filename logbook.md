@@ -1,3 +1,7 @@
+#### Jun 09, 2025
+
+Image logging is working. Deleting **min60** and **micro59**. And committing **min59** to be saved. Also I guess I will commit full folder of logs since I may require loss curves of any model later.
+
 #### Jun 05, 2025
 
 Today 4 GPUs.

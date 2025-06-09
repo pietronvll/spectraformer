@@ -6,8 +6,9 @@
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 # Project-specific files
-*checkpoints/
-*logs/
+checkpoints/
+!saved_models/checkpoints/
+# logs/
 *.png
 *temp/
 
