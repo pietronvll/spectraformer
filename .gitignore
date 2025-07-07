@@ -8,6 +8,7 @@
 # Project-specific files
 checkpoints/
 !saved_models/checkpoints/
+**/data_leo/
 # logs/
 *.png
 *temp/

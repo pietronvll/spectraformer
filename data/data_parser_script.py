@@ -26,8 +26,8 @@ def parse_dataset(path: str):
 
 datadir = Path(__file__).parent.resolve()
 
-raw_data_dir = datadir / 'raw_data'
-parsed_data_dir = datadir / 'parsed_data'
+raw_data_dir = datadir / 'raw_data' / "data_leo"
+parsed_data_dir = datadir / 'parsed_data' / "data_leo"
 
 # Ensure parsed_data directory exists
 Path(parsed_data_dir).mkdir(exist_ok=True)

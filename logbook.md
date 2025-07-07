@@ -1,3 +1,83 @@
+#### Jul 07, 2025
+
+Franklin is back! Let's integrate baseline + outlier removal used in my statistics investigations. In particular:
+
+```python
+# background subtraction
+import pybaselines
+
+def subtract_whittaker_background(da, lam=1e7):
+    """Subtract Whittaker baseline from xarray DataArray using pybaselines."""
+    
+    # Process each spectrum
+    baselines = []
+    for i in range(len(da.spectra)):
+        spectrum = da.isel(spectra=i).values
+        baseline, _ = pybaselines.whittaker.aspls(spectrum, lam=lam)
+        baselines.append(baseline)
+    
+    # Create baseline DataArray
+    baseline_da = xr.DataArray(
+        np.array(baselines).T,
+        dims=da.dims,
+        coords=da.coords
+    )
+    
+    # Subtract baseline
+    return da - baseline_da, baseline_da
+
+# Outlier finding and substituting by mean value within 2*kernel_size window
+import copy
+
+def whitaker_hayes(intensity_data, kernel_size: int = 3, threshold: int = 8):
+    return xr.DataArray(
+        np.apply_along_axis(whitaker_hayes_spectrum, axis=-1, arr=intensity_data, kernel_size=kernel_size, threshold=threshold),
+        dims=intensity_data.dims,
+        coords=intensity_data.coords
+        )
+
+
+def whitaker_hayes_spectrum(intensity_values_array, kernel_size, threshold):
+    spectrum_array = copy.deepcopy(intensity_values_array)
+
+    spikes = whitaker_hayes_modified_z_score(spectrum_array) > threshold
+
+    while any(spike for spike in spikes if spike):
+        changes = False
+
+        for i in range(len(spikes)):
+            if spikes[i]:
+                neighbours = np.arange(max(0, i - kernel_size),
+                                       min(len(spectrum_array) - 1, i + 1 + kernel_size))
+                fixed_value = np.median(spectrum_array[neighbours[spikes[neighbours] == 0]]) # Median or mean?
+
+                if np.isnan(fixed_value):
+                    continue
+
+                spectrum_array[i] = fixed_value
+                spikes[i] = 0
+                changes = True
+
+        if not changes:
+            break
+
+    return spectrum_array
+
+
+def modified_z_score(spectrum):
+    """Calculates the modified z-scores of a given spectrum."""
+    mad_term = np.median([np.abs(spectrum - np.median(spectrum))])
+    modified_z_scores = np.array(0.6745 * (spectrum - np.median(spectrum)) / mad_term)
+
+    return modified_z_scores
+
+
+def whitaker_hayes_modified_z_score(spectrum):
+    """Calculates the Whitaker-Hayes modified z-scores of a given spectrum."""
+    return np.abs(modified_z_score(np.diff(spectrum)))
+    # return np.abs(modified_z_score(spectrum))
+```
+
 #### Jun 09, 2025
 
 Image logging is working. Deleting **min60** and **micro59**. And committing **min59** to be saved. Also I guess I will commit full folder of logs since I may require loss curves of any model later.

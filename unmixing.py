@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
+# import pandas as pd
 from scipy.signal import savgol_filter
 import jax
 import jax.numpy as jnp
@@ -25,7 +25,7 @@ jax.config.update("jax_debug_nans", True)
 maindir = Path(__file__).parent.resolve()
 
 logdir = maindir / "logs"
-ckptdir = maindir / "checkpoints"
+ckptdir = maindir / "saved_models" / "checkpoints"
 # Check if logdir and ckptdir exist, if not create them
 logdir.mkdir(parents=True, exist_ok=True)
 ckptdir.mkdir(parents=True, exist_ok=True)
@@ -36,11 +36,11 @@ datadir = maindir / "data"
 # Section of Parameters choise for unmixing
 # ####################################################################################################
 
-model_tag = "min52_GeomLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min59_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
-material = 'SiC-high-f' #Change this accordingly to the folder name where your mixtures are
+material = 'buffer+graphene' #Change this accordingly to the folder name where your mixtures are
 
-# Savgol filter parameters. I find 100 and 9 the best, but there is nothing behind it, it's arbitrary
+# Savgol filter parameters
 window_length = 100
 polyorder = 3
 
@@ -211,12 +211,28 @@ if __name__ == "__main__":
     
     # Initializing a model
     state = load_model(configs, dataset=train_ds)
+    base_path = Path(mixdir)
+    output_base = Path(unmixdir_model_material)
     
     # Loop over a folder with mixed spectra we want to process
-    for elem in epath.Path(mixdir).iterdir():
-        if elem.is_file():
+    for elem in base_path.rglob('*'):
+        if elem.is_file() and elem.suffix.lower() == '.nc':
+            # Get relative path from base directory
+            relative_path = elem.relative_to(base_path)
+            # Create new filename with original directory structure
+            output_path = output_base / relative_path.with_name(
+                f"unmixed_by_{model_tag}_{relative_path.name}"
+            )
+            # Create parent directories if they don't exist
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
             # Loading dataset
-            dataset_elem = preprocess_dataset( xr.load_dataarray(elem) )
+            dataarray_elem = xr.load_dataarray(elem)
+            # Ensure the DataArray has at least two dimensions for preprocessing
+            if len(dataarray_elem.dims) == 1:
+                # Assume the dimension is "wave_number" or similar, add a "sample" dimension
+                dataarray_elem = dataarray_elem.expand_dims("sample")
+            dataset_elem = preprocess_dataset(dataarray_elem, is_filter=True)
             # Making predictions
             predictions = prediction_fn(configs, dataset_elem, state)
             # 1) Figure out how many samples and how long each array is:
@@ -270,7 +286,7 @@ if __name__ == "__main__":
 
             # 5) Save the dataset to NetCDF
             # Saving predictions
-            ds.to_netcdf(unmixdir_model_material / f"unmixed_by_{model_tag}_{elem.name}", engine="netcdf4")
+            ds.to_netcdf(output_path, engine="netcdf4")
             print(f"Saved unmixed_by_{model_tag}_{elem.name}")
     
     print('Unmixing done.')
