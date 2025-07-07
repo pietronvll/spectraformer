@@ -47,7 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min60_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "micro61_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -145,7 +145,8 @@ if __name__ == "__main__":
             datadir=parsed_datadir,
             file_location_with_name=str(relative_path),
             shuffle_rng_seed=configs.root_rng_seed,
-            is_filter=False
+            is_filter=False,
+            option='whitaker_hayes'
         )
         # Load only those, who is large enough to be treated in parallel
         if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
@@ -161,7 +162,8 @@ if __name__ == "__main__":
                 datadir=parsed_datadir,
                 file_location_with_name=str(relative_path),
                 shuffle_rng_seed=configs.root_rng_seed,
-                is_filter=configs.is_filter if hasattr(configs, 'is_filter') else False
+                is_filter=configs.is_filter if hasattr(configs, 'is_filter') else False,
+                option='whitaker_hayes'
             )
             # Load only those, who is large enough to be treated in parallel
             if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:

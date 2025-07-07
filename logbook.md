@@ -78,6 +78,8 @@ def whitaker_hayes_modified_z_score(spectrum):
     # return np.abs(modified_z_score(spectrum))
 ```
 
+And try it on my local machine with **micro61**.
+
 #### Jun 09, 2025
 
 Image logging is working. Deleting **min60** and **micro59**. And committing **min59** to be saved. Also I guess I will commit full folder of logs since I may require loss curves of any model later.
