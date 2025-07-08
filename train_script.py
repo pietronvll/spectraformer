@@ -33,7 +33,7 @@ from tensorboardX import SummaryWriter
 from spectraformer.input_pipeline import batch_sampler, dataset_loader #, preprocess_dataset
 from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap, log_gpu_usage
-from spectraformer.inference import plot_results_train, predict, plot_loss
+from spectraformer.inference import plot_results_train, predict, plot_loss, plot_dataset_pairs
 
 jax.config.update("jax_debug_nans", True)
 
@@ -136,6 +136,7 @@ if __name__ == "__main__":
     
     # New automatic dataset loading
     datasets = []
+    dataset_names = []
     # No filtering load
     for nc_file in nc_files:
         # Get relative path from datadir (e.g., "SiC/subdir/filename.nc")
@@ -151,6 +152,7 @@ if __name__ == "__main__":
         # Load only those, who is large enough to be treated in parallel
         if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
             datasets.append((train_ds, val_ds))
+            dataset_names.append(nc_file.name)
     
     #  Filtering load - only if filtering is set (to not double-load same data)
     if hasattr(configs, 'is_filter') and configs.is_filter:
@@ -170,6 +172,7 @@ if __name__ == "__main__":
                 datasets.append((train_ds, val_ds))
 
     print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====\n")
+    plot_dataset_pairs(datasets, save_dir='temp/datasets_plots/dropping/2', nc_files=dataset_names)
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)

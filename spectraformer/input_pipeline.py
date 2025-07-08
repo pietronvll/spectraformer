@@ -110,7 +110,7 @@ def preprocess_dataset(
             print("##### MIMIC OUTLIER REMOVAL #####")
         return filtered_dataset
     
-    def subtract_whittaker_background(da, lam=1e7):
+    def subtract_whittaker_background(da, lam=1e8):
         """Subtract Whittaker baseline from xarray DataArray using pybaselines."""
         
         # Process each spectrum
@@ -246,7 +246,7 @@ def preprocess_dataset(
             preprocessed_dataset = shifting_fn(
                 preprocessed_dataset, shift=0.1
             )
-            # 5. mimic
+            # 5. mimic - performs the same dropping mechanism as before
             preprocessed_dataset = mimic_outlier_removal_fn(
                 preprocessed_dataset
             )
