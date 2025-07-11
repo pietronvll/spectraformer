@@ -172,7 +172,7 @@ if __name__ == "__main__":
                 datasets.append((train_ds, val_ds))
 
     print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====\n")
-    plot_dataset_pairs(datasets, save_dir='temp/datasets_plots/dropping/2', nc_files=dataset_names)
+    plot_dataset_pairs(datasets, save_dir='temp/datasets_plots/no_dropping/2', nc_files=dataset_names)
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
