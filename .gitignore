@@ -15,7 +15,7 @@ data/raw_data/
 data/unmixed/
 
 **/data_leo/
-# logs/
+!logs/
 *.png
 *temp/
 
@@ -46,8 +46,8 @@ x86/
 bld/
 [Bb]in/
 [Oo]bj/
-[Ll]og/
-[Ll]ogs/
+# [Ll]og/
+# [Ll]ogs/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
