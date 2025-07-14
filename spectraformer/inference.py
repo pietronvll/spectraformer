@@ -43,7 +43,7 @@ def plot_results(predictions):
     ax.legend(frameon=False)
     ax.margins(x=0)
     ax.grid(visible=True, which='both', axis='both')
-    ax.set_ylim(-0.3, 1.2)
+    ax.set_ylim(-0.3, 1.5)
     return fig, ax
 
 def plot_results_train(predictions, step, epoch, current_model_tag):
@@ -76,7 +76,7 @@ def plot_results_train(predictions, step, epoch, current_model_tag):
     ax.set_xlabel("Raman shift, $cm^{-1}$", fontsize='x-large')
     ax.set_ylabel("Intensity, a.u.", fontsize='x-large')
     ax.tick_params(axis='both', which='major', labelsize='x-large')
-    ax.set_ylim(-0.3, 1.2)
+    ax.set_ylim(-0.3, 1.5)
     return fig, ax
 
 def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag):

@@ -10,3 +10,4 @@ gcsfs
 matplotlib
 gpustat
 tabulate
+pybaselines

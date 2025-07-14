@@ -76,7 +76,7 @@ def load_model(
     st.write("Parsing Configuration File")
     configs = ml_confs.from_dict(ckpt_manager.metadata())
     st.write("Checkpoint Metadata:", ckpt_manager.metadata())
-    test_ds = preprocess_dataset(xr.load_dataarray(f"data/mixtures/{dataset_tag}"))
+    test_ds = preprocess_dataset(xr.load_dataarray(f"data/mixtures/{dataset_tag}"), option='whitaker_hayes')
     
     
     # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  

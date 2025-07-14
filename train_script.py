@@ -47,7 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "micro61_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min62_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 

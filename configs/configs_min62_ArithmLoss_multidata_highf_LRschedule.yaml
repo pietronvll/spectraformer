@@ -1,4 +1,4 @@
-tag: "spectraformer:min61_ArithmLoss_multidata_highf_LRschedule"
+tag: "spectraformer:min62_ArithmLoss_multidata_highf_LRschedule"
 
 #                  Min:             Base:       Micro:
 # embedding_dim:     64               256           64
@@ -33,8 +33,8 @@ train_dataset:  "SiC_19x10x3" #"SiC_100x10"
 
 log_every_epochs: 1
 
-masked_interval_starts: [1000, 2500]
-masked_interval_ends: [1660, 2900]
+masked_interval_starts: [1, 2500]
+masked_interval_ends: [1660, 4000]
 random_mask: False
 
 mean: 'Arithmetic' # one from the list ['Arithmetic', 'Geometric']
