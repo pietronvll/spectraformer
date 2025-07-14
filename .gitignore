@@ -8,6 +8,12 @@
 # Project-specific files
 checkpoints/
 !saved_models/checkpoints/
+
+# no need to have these at the cluster
+data/mixtures/
+data/raw_data/
+data/unmixed/
+
 **/data_leo/
 # logs/
 *.png

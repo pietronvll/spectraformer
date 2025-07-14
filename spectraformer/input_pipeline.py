@@ -233,7 +233,7 @@ def preprocess_dataset(
             # 0. Spatial dimensions stacking
             preprocessed_dataset = stack_spatial_dims(dataset)
             # 1. Background removal
-            preprocessed_dataset = subtract_whittaker_background(preprocessed_dataset)
+            # preprocessed_dataset = subtract_whittaker_background(preprocessed_dataset)
             # 2. Whitaker-Hayes Outlier removal
             preprocessed_dataset = whitaker_hayes(
                 preprocessed_dataset

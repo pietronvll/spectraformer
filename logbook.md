@@ -1,3 +1,7 @@
+#### Jul 14, 2025
+
+Trying to remove as many garbage from git as I can to decrease the weight on the cluster.
+
 #### Jul 07, 2025
 
 Franklin is back! Let's integrate baseline + outlier removal used in my statistics investigations. In particular:
