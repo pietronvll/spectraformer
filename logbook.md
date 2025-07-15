@@ -1,3 +1,7 @@
+#### Jul 15, 2025
+
+90945 - this is the best step (epoch 387) for **min62**: a model trained without filtered dataset trick. Is it that I am stuck with lack of data? Or data is of bad quality and the predictor jumps around 1 STD away from the mean spectrum point? Let's enlarge the dataset with idk 15s acquisition or 20s...
+
 #### Jul 14, 2025
 
 Trying to remove as many garbage from git as I can to decrease the weight on the cluster.

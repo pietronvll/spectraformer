@@ -33,14 +33,14 @@ train_dataset:  "SiC_19x10x3" #"SiC_100x10"
 
 log_every_epochs: 1
 
-masked_interval_starts: [1, 2500]
+masked_interval_starts: [-1, 2500]
 masked_interval_ends: [1660, 4000]
 random_mask: False
 
 mean: 'Arithmetic' # one from the list ['Arithmetic', 'Geometric']
 
 # Early stop
-is_early_stop: True
+is_early_stop: False
 early_stop_min_delta: 1e-4
 early_stop_patience: 5 # it's also in CheckpointManagerOptions: max_to_keep = early_stop_patience + 1
 
