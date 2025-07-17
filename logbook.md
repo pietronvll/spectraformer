@@ -1,3 +1,9 @@
+#### Jul 17, 2025
+
+Based on the expected spectral features knowledge and the output of the model for buffer layer graphene, I have added more revealed regions for model to see in the region of interest. Trained **min63**. 
+
+AND FOR SOME REASON it converged into a crosing point... While last **min62** attempt didn't cross at all. I have completely no idea why it is happening. God of random is playing with me?
+
 #### Jul 15, 2025
 
 90945 - this is the best step (epoch 387) for **min62**: a model trained without filtered dataset trick. Is it that I am stuck with lack of data? Or data is of bad quality and the predictor jumps around 1 STD away from the mean spectrum point? Let's enlarge the dataset with idk 15s acquisition or 20s...
