@@ -47,7 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min62_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min63_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -344,18 +344,8 @@ if __name__ == "__main__":
             jax.tree.map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_val_metrics)
         )
         
-        # Early stop
-        early_stop = early_stop.update(val_metrics[-1]["val_loss_step"])
-        best_metric_value = min(metric["val_loss_step"] for metric in val_metrics)
-        metrics_difference = best_metric_value - val_metrics[-1]["val_loss_step"]
-        print(f"\n==== Metrics difference w.r.t. the best value: {metrics_difference:.5e} ==== Patience count {early_stop.patience_count}\n")
-        if is_early_stop and early_stop.should_stop:
-            print(f"Met early stopping criteria, breaking at epoch {epoch}. Last saved epoch is {epoch-1}.")
-            break
-        
         # Write epoch+1 to the state
         state = update_epoch(state)
-        
         
         # Logging
         if epoch % configs.log_every_epochs == 0:
@@ -409,6 +399,15 @@ if __name__ == "__main__":
                 items={"state": single_state}
             )
         print(f'\n==== Epoch {epoch} -- End ====\n')
+        
+        # Early stop
+        early_stop = early_stop.update(val_metrics[-1]["val_loss_step"])
+        best_metric_value = min(metric["val_loss_step"] for metric in val_metrics)
+        metrics_difference = best_metric_value - val_metrics[-1]["val_loss_step"]
+        print(f"\n==== Metrics difference w.r.t. the best value: {metrics_difference:.5e} ==== Patience count {early_stop.patience_count}\n")
+        if is_early_stop and early_stop.should_stop:
+            print(f"Met early stopping criteria, breaking at epoch {epoch}. Last saved epoch is {epoch}.")
+            break
         
     ckpt_manager.wait_until_finished()
     metric_writer.close()

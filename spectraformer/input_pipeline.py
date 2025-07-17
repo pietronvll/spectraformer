@@ -250,6 +250,23 @@ def preprocess_dataset(
             preprocessed_dataset = mimic_outlier_removal_fn(
                 preprocessed_dataset
             )
+        case 'whitaker_hayes_with_outliers':
+            # 0. Spatial dimensions stacking
+            preprocessed_dataset = stack_spatial_dims(dataset)
+            # 1. Background removal
+            # preprocessed_dataset = subtract_whittaker_background(preprocessed_dataset)
+            # 2. Whitaker-Hayes Outlier removal
+            preprocessed_dataset = whitaker_hayes(
+                preprocessed_dataset
+            )
+            # 3. Normalization to the max
+            preprocessed_dataset = proper_norm_fn(
+                preprocessed_dataset
+            )
+            # 4. Shifting - to avoid large negative log values in loss calculation
+            preprocessed_dataset = shifting_fn(
+                preprocessed_dataset, shift=0.4
+            )
     return preprocessed_dataset
 
 def preprocess_dataset_raw(

@@ -36,7 +36,7 @@ datadir = maindir / "data"
 # Section of Parameters choise for unmixing
 # ####################################################################################################
 
-model_tag = "min59_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min62_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 material = 'buffer+graphene' #Change this accordingly to the folder name where your mixtures are
 
@@ -157,7 +157,8 @@ def load_model(
     # Restore checkpoint
     try:
         restored = ckpt_manager.restore(
-            ckpt_manager.latest_step(),
+            # ckpt_manager.latest_step(),
+            90945,
             args=ocp.args.StandardRestore({"state": state})
         )
         state = restored["state"]
@@ -207,7 +208,7 @@ if __name__ == "__main__":
     configs.tabulate()
     
     # Loading a train dataset to initialize model
-    train_ds = preprocess_dataset(xr.load_dataarray(datadir / f"{configs.train_dataset}.nc"))
+    train_ds = preprocess_dataset(xr.load_dataarray(datadir / f"{configs.train_dataset}.nc"), option='whitaker_hayes_with_outliers')
     
     # Initializing a model
     state = load_model(configs, dataset=train_ds)
@@ -232,7 +233,11 @@ if __name__ == "__main__":
             if len(dataarray_elem.dims) == 1:
                 # Assume the dimension is "wave_number" or similar, add a "sample" dimension
                 dataarray_elem = dataarray_elem.expand_dims("sample")
-            dataset_elem = preprocess_dataset(dataarray_elem, is_filter=True)
+            dataset_elem = preprocess_dataset(
+                dataarray_elem, 
+                # is_filter=True, 
+                option='whitaker_hayes_with_outliers'
+                )
             # Making predictions
             predictions = prediction_fn(configs, dataset_elem, state)
             # 1) Figure out how many samples and how long each array is:
