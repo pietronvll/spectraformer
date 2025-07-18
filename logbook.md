@@ -1,3 +1,8 @@
+#### Jul 18, 2025
+
+Trying **min64** - twin of **min63** to check God of randon's decision. 
+Loss pattern repeats itself perfectly. Abort.
+
 #### Jul 17, 2025
 
 Based on the expected spectral features knowledge and the output of the model for buffer layer graphene, I have added more revealed regions for model to see in the region of interest. Trained **min63**. 
