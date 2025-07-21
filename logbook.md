@@ -3,6 +3,12 @@
 Trying **min64** - twin of **min63** to check God of randon's decision. 
 Loss pattern repeats itself perfectly. Abort.
 
+There are 2 main differences between **min62** and **min63/64**:
+1. Early stopping mechanism was on -- I had to manually rerun script, because it reached early stop criteria almost immediately (loss curve is very noisy: could it be a LR issue? Is it too big and the model jumps rapidly?).
+2. There were less amount of masks -- but I don't think it's an issue, since revealing of data helps to find better matching values.
+
+Based on that, let's try again by deleting **min63/64** models and train **min65** this time with early stopping mechanism. And I will adjust a bit LR decay coefficient from 0.9 to 0.85 leading to have LR at the end of 15th cycle being 8e-5 instead of 2e-4 (~3 times smaller).
+
 #### Jul 17, 2025
 
 Based on the expected spectral features knowledge and the output of the model for buffer layer graphene, I have added more revealed regions for model to see in the region of interest. Trained **min63**. 
