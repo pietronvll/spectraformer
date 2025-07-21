@@ -47,10 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min65_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
-=======
 model_tag = "min66_highf"  # CHOOSE ONE (.yaml file should exist)
->>>>>>> 306c757cf1727f5269ca4ac4e5303f86d6f357f0
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -375,10 +372,6 @@ if __name__ == "__main__":
                     loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
                 case _:
                     raise Exception(f"Specify loss_fn correctly in config!")
-            
-            
-            
-            loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
             
             # Making a plot as in a dashboard
             fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], model_tag)
