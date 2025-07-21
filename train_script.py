@@ -363,9 +363,18 @@ if __name__ == "__main__":
             # Calculating a loss for plotting
             dummy_spectra = jnp.squeeze(dummy_example["spectra"])
             dummy_pred_spectra = jnp.squeeze(dummy_prediction["predicted_spectra"])
-            dummy_ratio = dummy_spectra / dummy_pred_spectra
             
-            loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
+            match configs.loss_fn if hasattr(configs, 'loss_fn') else "CorrGamma":
+                case "MSE":
+                    loss = (dummy_pred_spectra - dummy_spectra) ** 2
+                case "CorrGamma":
+                    dummy_ratio = dummy_spectra / dummy_pred_spectra
+                    loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
+                case _:
+                    raise Exception(f"Specify loss_fn correctly in config!")
+            
+            
+            
             
             # Making a plot as in a dashboard
             fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], model_tag)
