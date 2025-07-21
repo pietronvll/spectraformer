@@ -419,14 +419,15 @@ def validation_epoch(
 @partial(
     jax.pmap,
     axis_name="batch",
-    static_broadcasted_argnums=(3,)  # Add static arg
+    static_broadcasted_argnums=(3,4)  # Add static arg
 )
 # @jax.jit
 def train_step_pmap_arithmetic(
     state: TrainState,
     batch,
     dropout_key,
-    num_devices: int  # Passed explicitly
+    num_devices: int,  # Passed explicitly
+    loss_fn: str = "CorrGamma"  # Default loss function
 ):
     # Get device index for unique key folding
     device_idx = lax.axis_index('batch')
@@ -456,8 +457,35 @@ def train_step_pmap_arithmetic(
         
         return local_loss # scalar per device
     
+    def mse_loss_fn(params):
+        pred_spectra = state.apply_fn(
+            {"params": params},
+            batch["masked_spectra"],
+            batch["wave_number"],
+            batch["mask"],
+            training=True,
+            rngs={"dropout": dropout_train_key},
+        )
+        
+        # NaN or Inf check using lax
+        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+        # Use lax.cond to act on the condition
+        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
+        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        
+        loss = jnp.mean( (pred_spectra - batch["spectra"]) ** 2 )
+        return loss
     
-    local_loss, local_grads = jax.value_and_grad(corrected_gamma_loss_fn)(state.params)
+    match loss_fn:
+        case "CorrGamma":
+            local_loss, local_grads = jax.value_and_grad(corrected_gamma_loss_fn)(state.params)
+        case "MSE":
+            local_loss, local_grads = jax.value_and_grad(mse_loss_fn)(state.params)
+        case _:
+            raise ValueError(f"Unknown loss function: {loss_fn}. Supported: 'CorrGamma', 'MSE'.")
+    # local_loss, local_grads = jax.value_and_grad(corrected_gamma_loss_fn)(state.params)
+    # local_loss, local_grads = jax.value_and_grad(mse_loss_fn)(state.params)
     
     # Average loss across devices
     global_loss = lax.psum(local_loss, axis_name="batch") / num_devices 
@@ -499,14 +527,15 @@ def train_step_pmap_arithmetic(
 @partial(
     jax.pmap,
     axis_name="batch",
-    static_broadcasted_argnums=(3,)  # Add static arg
+    static_broadcasted_argnums=(3,4)  # Add static arg
 )
 # @jax.jit
 def validation_step_pmap_arithmetic(
     state: TrainState, 
     batch, 
     dropout_key,
-    num_devices: int  # Passed explicitly
+    num_devices: int,  # Passed explicitly
+    loss_fn: str = "CorrGamma"  # Default loss function
 ):
     # Get device index for unique key folding
     device_idx = lax.axis_index('batch')
@@ -537,8 +566,35 @@ def validation_step_pmap_arithmetic(
         
         return local_loss # scalar per device
     
+    def mse_loss_fn(params):
+        pred_spectra = state.apply_fn(
+            {"params": params},
+            batch["masked_spectra"],
+            batch["wave_number"],
+            batch["mask"],
+            training=False,
+            rngs={"dropout": dropout_train_key},
+        )
+        
+        # NaN or Inf check using lax
+        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
+        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
+        # Use lax.cond to act on the condition
+        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
+        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        
+        loss = jnp.mean( (pred_spectra - batch["spectra"]) ** 2 )
+        return loss
     
-    local_loss = corrected_gamma_loss_fn(state.params)
+    match loss_fn:
+        case "CorrGamma":
+            local_loss = corrected_gamma_loss_fn(state.params)
+        case "MSE":
+            local_loss = mse_loss_fn(state.params)
+        case _:
+            raise ValueError(f"Unknown loss function: {loss_fn}. Supported: 'CorrGamma', 'MSE'.")
+    # local_loss = corrected_gamma_loss_fn(state.params)
+    # local_loss = mse_loss_fn(state.params)
     
     # Average loss across devices
     global_loss = lax.psum(local_loss, axis_name="batch") / num_devices
@@ -791,13 +847,14 @@ def train_epoch_pmap(
         # Usage before compilation:
         # verify_pmap_inputs(state, batch_sharded, dropout_sharded)
         
-        
+        loss_fn=configs.loss_fn
         # 3) Run pmapped train step
         state, batch_metrics = train_step_pmap(
             state, 
             batch_sharded, 
             dropout_sharded,
-            num_devices
+            num_devices,
+            loss_fn
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 
@@ -864,12 +921,14 @@ def validation_epoch_pmap(
         dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]  # Convert to list
         dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
 
+        loss_fn=configs.loss_fn
         # 3) Run pmapped train step
         _, batch_metrics = validation_step_pmap(
             state, 
             batch_sharded, 
             dropout_sharded,
-            num_devices
+            num_devices,
+            loss_fn
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 

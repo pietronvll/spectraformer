@@ -1,3 +1,7 @@
+#### Jul 21, 2025
+
+Implemented logic of choise for loss function type: MSE or CorrGamma. Let's check if MSE works better with overfitting avoiding (probably not).
+
 #### Jul 18, 2025
 
 Trying **min64** - twin of **min63** to check God of randon's decision. 

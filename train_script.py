@@ -48,6 +48,9 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 datadir = maindir / "data"
 
 model_tag = "min65_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+=======
+model_tag = "min66_highf"  # CHOOSE ONE (.yaml file should exist)
+>>>>>>> 306c757cf1727f5269ca4ac4e5303f86d6f357f0
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -363,7 +366,17 @@ if __name__ == "__main__":
             # Calculating a loss for plotting
             dummy_spectra = jnp.squeeze(dummy_example["spectra"])
             dummy_pred_spectra = jnp.squeeze(dummy_prediction["predicted_spectra"])
-            dummy_ratio = dummy_spectra / dummy_pred_spectra
+            
+            match configs.loss_fn if hasattr(configs, 'loss_fn') else "CorrGamma":
+                case "MSE":
+                    loss = (dummy_pred_spectra - dummy_spectra) ** 2
+                case "CorrGamma":
+                    dummy_ratio = dummy_spectra / dummy_pred_spectra
+                    loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
+                case _:
+                    raise Exception(f"Specify loss_fn correctly in config!")
+            
+            
             
             loss = (( dummy_ratio - 1) - jnp.log( dummy_ratio ))
             
