@@ -1,4 +1,4 @@
-tag: "spectraformer:min64_ArithmLoss_multidata_highf_LRschedule"
+tag: "spectraformer:micro65_ArithmLoss_multidata_highf_LRschedule"
 
 #                  Min:             Base:       Micro:
 # embedding_dim:     64               256           64
@@ -7,7 +7,7 @@ tag: "spectraformer:min64_ArithmLoss_multidata_highf_LRschedule"
 
 # Min:
 embedding_dim: 64
-num_heads: 8
+num_heads: 2
 num_layers: 2
 
 # # Base:
