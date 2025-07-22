@@ -47,7 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min67_highf"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min68_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -189,7 +189,6 @@ if __name__ == "__main__":
     if hasattr(configs, 'is_filter') and configs.is_filter:
         print("Filtering: TRUE. Double the amount of data.\n")
     
-    exit(0)
     # plot_dataset_pairs(datasets, save_dir='temp/datasets_plots/no_dropping/2', nc_files=dataset_names)
     
     mask_windows = list(

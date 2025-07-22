@@ -1,3 +1,7 @@
+#### Jul 22, 2025
+
+Changed dropout rate from 0.5 to 0.2 for model **min67**. Its performance is quite nice. Saved. For **min68** decreased it to 0.1. Also saved **min23** just in case.
+
 #### Jul 21, 2025
 
 Implemented logic of choise for loss function type: MSE or CorrGamma. Let's check if MSE works better with overfitting avoiding (probably not).

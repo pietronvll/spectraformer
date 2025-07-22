@@ -73,7 +73,7 @@ def plot_results_train(predictions, step, epoch, current_model_tag):
     ax.grid(visible=True, which='both', axis='both')
     ax.set_title(f'{current_model_tag}\nStep {step} -- Epoch {epoch}', fontsize='x-large')
     
-    ax.set_xlabel("Raman shift, $cm^{-1}$", fontsize='x-large')
+    ax.set_xlabel("Raman shift, cm$^{-1}$", fontsize='x-large')
     ax.set_ylabel("Intensity, a.u.", fontsize='x-large')
     ax.tick_params(axis='both', which='major', labelsize='x-large')
     ax.set_ylim(-0.3, 1.5)
@@ -89,8 +89,8 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag):
     loss_arithm_mean = np.mean(loss)
     ax.axhline(loss_arithm_mean, label="Arithmetic mean", color="r", alpha=1, linestyle=":")
     
-    ax.set_xlabel("Wavenumber (cm$^{-1}$)", fontsize='x-large')
-    ax.set_ylabel("Loss", fontsize='x-large')
+    ax.set_xlabel("Raman shift, cm$^{-1}$", fontsize='x-large')
+    ax.set_ylabel("Loss, a.u.", fontsize='x-large')
     ax.set_title(f'Loss for {current_model_tag}\nStep {step} -- Epoch {epoch}', fontsize='x-large')
     ax.legend()
     ax.grid(visible=True, which='both', axis='both')
@@ -131,8 +131,8 @@ def plot_dataset_pairs(datasets, save_dir='temp/datasets_plots', figsize=(12, 6)
         plt.plot(wave_number, val_ds.mean(dim='spectra'), 'r', linewidth=1.5, label='Validation Mean')
         
         # Configure plot
-        plt.xlabel('Wave Number')
-        plt.ylabel('Intensity')
+        plt.xlabel("Raman shift, cm$^{-1}$")
+        plt.ylabel('Intensity, a.u.')
         
         # Determine title and filename
         if nc_files is not None and i < len(nc_files):
