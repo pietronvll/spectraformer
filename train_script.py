@@ -47,7 +47,7 @@ ckptdir.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
-model_tag = "min66_highf"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min67_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 
 
@@ -137,6 +137,12 @@ if __name__ == "__main__":
     # New automatic dataset loading
     datasets = []
     dataset_names = []
+    
+    num_spectra_train = 0
+    num_spectra_train_accepted = 0
+    num_spectra_val = 0
+    num_spectra_val_accepted = 0
+    
     # No filtering load
     for nc_file in nc_files:
         # Get relative path from datadir (e.g., "SiC/subdir/filename.nc")
@@ -149,10 +155,15 @@ if __name__ == "__main__":
             is_filter=False,
             option='whitaker_hayes'
         )
+        # Update the total number of spectra
+        num_spectra_train += train_ds.sizes['spectra']
+        num_spectra_val += val_ds.sizes['spectra']
         # Load only those, who is large enough to be treated in parallel
         if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
             datasets.append((train_ds, val_ds))
             dataset_names.append(nc_file.name)
+            num_spectra_train_accepted += train_ds.sizes['spectra']
+            num_spectra_val_accepted += val_ds.sizes['spectra']
     
     #  Filtering load - only if filtering is set (to not double-load same data)
     if hasattr(configs, 'is_filter') and configs.is_filter:
@@ -171,7 +182,14 @@ if __name__ == "__main__":
             if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
                 datasets.append((train_ds, val_ds))
 
-    print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====\n")
+    print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====")
+    print(f"===== Total number of spectra in train datasets: {num_spectra_train}, validation datasets: {num_spectra_val}, total: {num_spectra_train + num_spectra_val} =====")
+    print(f"===== Accepted number of spectra in train datasets: {num_spectra_train_accepted}, validation datasets: {num_spectra_val_accepted}, total: {num_spectra_train_accepted + num_spectra_val_accepted} =====\n")
+    
+    if hasattr(configs, 'is_filter') and configs.is_filter:
+        print("Filtering: TRUE. Double the amount of data.\n")
+    
+    exit(0)
     # plot_dataset_pairs(datasets, save_dir='temp/datasets_plots/no_dropping/2', nc_files=dataset_names)
     
     mask_windows = list(
