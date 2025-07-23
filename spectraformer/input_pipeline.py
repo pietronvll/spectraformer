@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import xarray as xr
-import pybaselines
+# import pybaselines
 import copy
 
 from scipy.signal import savgol_filter
@@ -110,25 +110,25 @@ def preprocess_dataset(
             print("##### MIMIC OUTLIER REMOVAL #####")
         return filtered_dataset
     
-    def subtract_whittaker_background(da, lam=1e8):
-        """Subtract Whittaker baseline from xarray DataArray using pybaselines."""
+    # def subtract_whittaker_background(da, lam=1e8):
+    #     """Subtract Whittaker baseline from xarray DataArray using pybaselines."""
         
-        # Process each spectrum
-        baselines = []
-        for i in range(len(da.spectra)):
-            spectrum = da.isel(spectra=i).values
-            baseline, _ = pybaselines.whittaker.aspls(spectrum, lam=lam)
-            baselines.append(baseline)
+    #     # Process each spectrum
+    #     baselines = []
+    #     for i in range(len(da.spectra)):
+    #         spectrum = da.isel(spectra=i).values
+    #         baseline, _ = pybaselines.whittaker.aspls(spectrum, lam=lam)
+    #         baselines.append(baseline)
         
-        # Create baseline DataArray
-        baseline_da = xr.DataArray(
-            np.array(baselines).T,
-            dims=da.dims,
-            coords=da.coords
-        )
+    #     # Create baseline DataArray
+    #     baseline_da = xr.DataArray(
+    #         np.array(baselines).T,
+    #         dims=da.dims,
+    #         coords=da.coords
+    #     )
         
-        # Subtract baseline
-        return da - baseline_da #, baseline_da
+    #     # Subtract baseline
+    #     return da - baseline_da #, baseline_da
     
     def whitaker_hayes(intensity_data, kernel_size: int = 3, threshold: int = 8):
         return xr.DataArray(

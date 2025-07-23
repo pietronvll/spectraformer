@@ -25,10 +25,10 @@ jax.config.update("jax_debug_nans", True)
 maindir = Path(__file__).parent.resolve()
 
 logdir = maindir / "logs"
-ckptdir = maindir / "saved_models" / "checkpoints"
+CKPTDIR = maindir / "saved_models" / "checkpoints"
 # Check if logdir and ckptdir exist, if not create them
 logdir.mkdir(parents=True, exist_ok=True)
-ckptdir.mkdir(parents=True, exist_ok=True)
+CKPTDIR.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
 
@@ -36,9 +36,12 @@ datadir = maindir / "data"
 # Section of Parameters choise for unmixing
 # ####################################################################################################
 
-model_tag = "min62_ArithmLoss_multidata_highf_LRschedule"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min67_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
 material = 'buffer+graphene' #Change this accordingly to the folder name where your mixtures are
+
+is_latest = True
+desired_step = 0  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.
 
 # Savgol filter parameters
 window_length = 100
@@ -71,7 +74,10 @@ class CustomTrainState(TrainState):
 
 def load_model(
     configs,
-    dataset
+    dataset,
+    is_latest: bool = True,
+    desired_step: int = 0,
+    ckptdir: epath.Path = CKPTDIR,
     ):
     # For unmixing this schedule is important to keep this as a model parameter. It is necessary for checkpoint matching
     
@@ -157,8 +163,8 @@ def load_model(
     # Restore checkpoint
     try:
         restored = ckpt_manager.restore(
-            # ckpt_manager.latest_step(),
-            90945,
+            ckpt_manager.latest_step() if is_latest else desired_step,
+            # 90945,
             args=ocp.args.StandardRestore({"state": state})
         )
         state = restored["state"]
@@ -211,7 +217,7 @@ if __name__ == "__main__":
     train_ds = preprocess_dataset(xr.load_dataarray(datadir / f"{configs.train_dataset}.nc"), option='whitaker_hayes_with_outliers')
     
     # Initializing a model
-    state = load_model(configs, dataset=train_ds)
+    state = load_model(configs, dataset=train_ds, is_latest=is_latest, desired_step=desired_step)
     base_path = Path(mixdir)
     output_base = Path(unmixdir_model_material)
     
