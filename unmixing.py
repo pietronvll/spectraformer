@@ -38,7 +38,7 @@ datadir = maindir / "data"
 
 model_tag = "min67_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
-material = 'buffer+graphene' #Change this accordingly to the folder name where your mixtures are
+material = 'buffer+graphene/BufferLayer_On SiC_Run3Rec6_20241011_2' #Change this accordingly to the folder name where your mixtures are
 
 is_latest = True
 desired_step = 0  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.

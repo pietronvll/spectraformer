@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # Define directories
 
     datadir = Path(__file__).parent.resolve()
-    material = "SiC-high-f"
+    material = "buffer+graphene/BufferLayer_On SiC_Run3Rec6_20241011_2"
     raw_data_dir = datadir / 'raw_data' / material
     parsed_data_dir = datadir / 'parsed_data' / material
 
