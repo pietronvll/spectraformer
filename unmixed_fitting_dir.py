@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-Voigt multi-peak fitting for many spectra with parallel workers.
-Improvements:
- - safer parameter bounds and defaults
- - robust handling of failed fits
- - logging instead of silent excepts
- - control over number of workers ( detects cluster env vars )
- - chunksize for executor.map to reduce overhead
-"""
-
 from __future__ import annotations
 import logging
 from pathlib import Path
@@ -66,38 +55,69 @@ def choose_workers(n_tasks: int, prefer_env: bool = True) -> int:
     return n
 
 
-def voigt_profile(x: np.ndarray, center: float, width: float, area: float, gamma_ratio: float,
-                  min_width: float = 1e-3) -> np.ndarray:
+def voigt_profile(x: np.ndarray, center: float, voigt_fwhm: float, area: float, 
+                 lorentz_frac: float, min_width: float = 1e-10) -> np.ndarray:
     """
-    Normalized Voigt profile scaled by `area`.
-    - width is interpreted as FWHM (for the Gaussian part).
-    - gamma_ratio is gamma / width (so gamma = width * gamma_ratio / 2).
-    - min_width avoids division by zero.
+    Area-normalized Voigt profile with exact physical parameterization.
+    
+    Parameters:
+    -----------
+    voigt_fwhm : float
+        Full width at half maximum of the composite Voigt profile
+    lorentz_frac : float
+        Fraction of Lorentzian character (0 = pure Gaussian, 1 = pure Lorentzian)
+    
+    Exact limits:
+    - lorentz_frac = 0: Perfect Gaussian with FWHM = voigt_fwhm
+    - lorentz_frac = 1: Perfect Lorentzian with FWHM = voigt_fwhm
+    
+    Scientific basis:
+    Uses Olivero-Longbothum approximation for mixed profiles with exact endpoint handling:
+    V ≈ 0.5346L + sqrt(0.2166L² + G²)
+    where L = lorentz_frac*V, solved for G
     """
-    # enforce a minimum width to avoid division-by-zero
-    width = float(max(width, min_width))
-    sigma = width / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-    gamma = width * gamma_ratio / 2.0
+    if area <= 0 or not np.isfinite(area):
+        return np.zeros_like(x, dtype=float)
 
-    denom = sigma * np.sqrt(2.0)
-    z = ((x - center) + 1j * gamma) / denom
-    voigt = np.real(wofz(z)) / (sigma * np.sqrt(2.0 * np.pi))
+    # Clamp to physical range and prevent numerical issues
+    voigt_fwhm = max(float(voigt_fwhm), min_width)
+    lorentz_frac = np.clip(float(lorentz_frac), 0.0, 1.0)
 
-    # normalize to unit area before scaling
-    norm = np.trapz(voigt, x)
-    if not np.isfinite(norm) or norm <= 0:
-        # fallback to Gaussian with safe sigma
-        sigma = max(sigma, 1e-6)
-        voigt = np.exp(-0.5 * ((x - center) / sigma) ** 2)
-        norm = np.trapz(voigt, x)
-        if not np.isfinite(norm) or norm <= 0:
-            # ultimate fallback: delta-like peak
-            voigt = np.zeros_like(x, dtype=float)
-            idx = np.argmin(np.abs(x - center))
-            voigt[idx] = 1.0
-            norm = 1.0
-    voigt = voigt / norm
-    return area * voigt
+    # EXACT PURE COMPONENT HANDLING
+    if lorentz_frac < 1e-8:  # Pure Gaussian branch
+        sigma = voigt_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        gamma = 1e-15  # Numerical zero (prevents wofz singularity)
+        
+    elif lorentz_frac > 1.0 - 1e-8:  # Pure Lorentzian branch
+        gamma = voigt_fwhm / 2.0  # Lorentzian HWHM = FWHM/2
+        sigma = 1e-15  # Numerical zero
+        
+    else:  # Mixed profile: decompose Voigt FWHM
+        lorentz_fwhm = lorentz_frac * voigt_fwhm
+        
+        # Solve for Gaussian FWHM using Olivero-Longbothum approximation
+        # V = 0.5346*L + sqrt(0.2166*L² + G²) → G = sqrt((V - 0.5346L)² - 0.2166L²)
+        term = voigt_fwhm - 0.5346 * lorentz_fwhm
+        if term <= 0:
+            # Numerical safeguard for extreme Lorentzian dominance
+            gauss_fwhm = 1e-15
+        else:
+            gauss_fwhm_sq = term**2 - 0.2166 * lorentz_fwhm**2
+            gauss_fwhm = np.sqrt(max(0.0, gauss_fwhm_sq))
+        
+        # Convert to distribution parameters
+        sigma = gauss_fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))  # Gaussian σ
+        gamma = lorentz_fwhm / 2.0  # Lorentzian HWHM
+
+    # Final numerical safeguards (prevent division by zero in wofz)
+    sigma = max(sigma, 1e-15)
+    gamma = max(gamma, 1e-15)
+
+    # Core Voigt computation using Faddeeva function
+    z = ((x - center) + 1j * gamma) / (sigma * np.sqrt(2.0))
+    profile = np.real(wofz(z)) / (sigma * np.sqrt(2.0 * np.pi))
+    
+    return area * profile
 
 
 def multi_voigt_free_gamma(x: np.ndarray, *flat_params: float) -> np.ndarray:
@@ -217,10 +237,11 @@ def fit_one_spectrum(task_args):
             p0=p0, bounds=bounds, maxfev=400
         )
     except Exception:
+        logger.debug("curve_fit failed for centers %s: %s", centers_to_use, exc)
         popt = np.full_like(p0, np.nan)
 
     # --- 5. Construct full result vector ---
-    full_result = np.zeros(n_peaks * 4, dtype=float)
+    full_result = np.full(n_peaks * 4, np.nan, dtype=float)
 
     # fill fitted peaks
     j = 0
@@ -228,8 +249,7 @@ def fit_one_spectrum(task_args):
         full_result[i*4:(i+1)*4] = popt[j:j+4]
         j += 4
 
-    # if last peak was absent → leave zeros in its slot
-    # (already zero-initialized)
+    # if last peak was absent → leave nans in its slot
 
     return full_result
 
@@ -239,47 +259,45 @@ def fit_one_spectrum(task_args):
 
 def fit_all_spectra(ds: xr.Dataset, var: str = 'predicted_difference', n_peaks: Optional[int] = None,
                     min_width: float = 1.0, max_width: float = 400.0, chunksize: int = 16):
-    """
-    Fit all spectra from an xarray Dataset `ds` variable `var`.
-    Returns:
-      - results: numpy array shaped (*spatial_shape, n_peaks*4)
-      - spatial_dims: list of spatial dimension names (order preserved)
-      - spatial_shape: tuple of sizes for those dims
-    """
     x = ds['wave_number'].values
-    # Get spatial dims in the same order as ds[var].dims excluding 'wave_number'
     var_dims = list(ds[var].dims)
     spatial_dims = [d for d in var_dims if d != 'wave_number']
     spatial_shape = tuple(ds.sizes[d] for d in spatial_dims)
 
-    # flatten y to (n_spectra, n_wave)
     y_data = ds[var].values.reshape(-1, x.size)
 
-    # choose n_peaks
+    if "mask" not in ds:
+        raise KeyError("Dataset must contain a 'mask' variable (bool array).")
+    mask_data = ds["mask"].values.reshape(-1, x.size)
+
     if n_peaks is None:
-        # if not provided, infer from rough_centers global (fallback)
         n_peaks = len(rough_centers)
 
-    args_list = [
-        (x, y_data[i], rough_centers[:n_peaks], rough_width, rough_amp_max,
-         rough_gamma_ratio, center_window, min_width, max_width)
-        for i in range(y_data.shape[0])
-    ]
+    args_list = []
+    for i in range(y_data.shape[0]):
+        region_mask = (x >= 1646) & (x <= 2500)   # True only in the desired x-range
+        x_masked = x[~region_mask] # keep points that are NOT in the main mask
+        y_masked = y_data[i][~region_mask]
+        if x_masked.size < n_peaks:  
+            # safeguard: not enough points to fit
+            x_masked = x
+            y_masked = y_data[i]
+        args_list.append(
+            (x_masked, y_masked, rough_centers[:n_peaks], rough_width,
+             rough_amp_max, rough_gamma_ratio, center_window, min_width, max_width)
+        )
 
     workers = choose_workers(n_tasks=len(args_list))
-    # for large numbers of tasks, give a chunksize to reduce scheduling overhead
     chunksize = max(1, chunksize)
 
     logger.info(f"Starting parallel fit: {len(args_list)} spectra, {workers} workers, chunksize {chunksize}")
     results = []
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        # tqdm over the iterator from executor.map
         for res in tqdm(executor.map(fit_one_spectrum, args_list, chunksize=chunksize),
                         total=len(args_list), desc="Fitting spectra"):
             results.append(res)
 
     results = np.asarray(results, dtype=float)
-    # reshape to spatial shape + (n_peaks * 4,)
     results = results.reshape(*spatial_shape, n_peaks * 4)
     return results, spatial_dims, spatial_shape
 
@@ -287,18 +305,18 @@ def fit_all_spectra(ds: xr.Dataset, var: str = 'predicted_difference', n_peaks: 
 # --- defaults (you can tune these) ---
 rough_centers = [1320, 1370, 1485, 1556, 1606, 2735]
 rough_width = 40.0
-min_width = 5.0         # must be > 0
+min_width = 10.0         # must be > 0
 max_width = 100.0
-rough_amp_max = 0.09
-rough_gamma_ratio = 0.5
+rough_amp_max = None # if None, use spectrum max
+rough_gamma_ratio = 0.0
 center_window = 40.0
 param_names = ['center', 'width', 'area', 'gamma_ratio']
 peak_names = ['D1', 'D2', 'B', 'L', 'G', '2D']
 
 
 if __name__ == "__main__":
-    input_base = Path("data/unmixed_spatial/min67_highf/buffer+graphene")
-    output_base = Path("data/unmixed_spatial_fitted/min67_highf/buffer+graphene")
+    input_base = Path("data/unmixed_spatial/min67_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1")
+    output_base = Path("temp/data/unmixed_spatial_fitted/min67_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1")
 
     nc_files = list(input_base.rglob("*.nc"))
     logger.info("Found %d netCDF files under %s", len(nc_files), input_base)
@@ -308,6 +326,9 @@ if __name__ == "__main__":
             unmixed_datapath = str(elem)
             ds_unmixed = xr.load_dataset(unmixed_datapath)
             logger.info("Loaded %s; vars: %s", unmixed_datapath, list(ds_unmixed.data_vars))
+            # print(ds_unmixed)
+            # print(ds_unmixed.coords)
+            # exit()
 
             # make sure the variable exists
             if "predicted_difference" not in ds_unmixed:
@@ -320,7 +341,7 @@ if __name__ == "__main__":
                 n_peaks=len(peak_names),
                 min_width=min_width,
                 max_width=max_width,
-                chunksize=1
+                chunksize=16
             )
 
             # reshape to (spatial_dims..., peak, param)
