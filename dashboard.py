@@ -185,7 +185,7 @@ st.title("Spectraformer dashboard")
 
 current_dataset_tag = st.selectbox("Select dataset (from mixtures folder):", available_datasets, index=2)
 
-available_mask_start = [1400,1500,1600,1660,1700,1800,1900,2000]
+available_mask_start = [1400,1500,1600,1660,1700,1800,1900,1950,2000]
 current_mask_start_tag = st.selectbox("Select left window boundary:", available_mask_start, index=3)
 available_mask_end = [2000,2100,2200,2300,2400,2500,2600,2700,2800]
 current_mask_end_tag = st.selectbox("Select right window boundary:", available_mask_end, index=5)
