@@ -1,10 +1,6 @@
 import gpustat
 
 from pathlib import Path
-from etils import epath
-
-# import numpy as np
-# import pandas as pd
 
 import jax
 import jax.numpy as jnp
@@ -15,8 +11,6 @@ print("Number of devices: ", num_devices)
 import ml_confs
 import optax
 import orbax.checkpoint as ocp
-# import xarray as xr
-# from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
 from flax.training.early_stopping import EarlyStopping
 
@@ -253,8 +247,8 @@ if __name__ == "__main__":
     )
     
     # After initialization remove the dummy file
-    if epath.Path(ckptdir / configs.tag / ".tmp").exists():
-        epath.Path(ckptdir / configs.tag / ".tmp").rmtree()
+    if (ckptdir / configs.tag / ".tmp").exists():
+        (ckptdir / configs.tag / ".tmp").rmdir()
     
     if len(ckpt_manager.all_steps()) > 0:
         restored = ckpt_manager.restore(

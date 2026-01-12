@@ -1,8 +1,5 @@
 from pathlib import Path
-
 import numpy as np
-# import pandas as pd
-from scipy.signal import savgol_filter
 import jax
 import jax.numpy as jnp
 print("JAX devices: ", jax.devices())
@@ -10,15 +7,11 @@ import ml_confs
 import optax
 import orbax.checkpoint as ocp
 import xarray as xr
-from etils import epath
-# from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
-# from tensorboardX import SummaryWriter
-
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
 from spectraformer.model import SpectraFormer
-# from spectraformer.train import train_epoch, validation_epoch
-from spectraformer.inference import predict #, plot_results
+import shutil
+from spectraformer.inference import predict
 
 jax.config.update("jax_debug_nans", True)
 
@@ -36,16 +29,12 @@ datadir = maindir / "data"
 # Section of Parameters choise for unmixing
 # ####################################################################################################
 
-model_tag = "min67_highf"  # CHOOSE ONE (.yaml file should exist)
+model_tag = "min70_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
-material = 'buffer+graphene/RUN6_REC12_edit4_20251112_1' #Change this accordingly to the folder name where your mixtures are
+material = 'SiC-high-f_not-in-dataset' #Change this accordingly to the folder name where your mixtures are
 
-is_latest = False
+is_latest = True
 desired_step = 38775  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.
-
-# Savgol filter parameters
-window_length = 100
-polyorder = 3
 
 # ####################################################################################################
 # END of Section of Parameters choise for unmixing
@@ -77,7 +66,7 @@ def load_model(
     dataset,
     is_latest: bool = True,
     desired_step: int = 0,
-    ckptdir: epath.Path = CKPTDIR,
+    ckptdir: Path = CKPTDIR,
     ):
     # For unmixing this schedule is important to keep this as a model parameter. It is necessary for checkpoint matching
     
@@ -157,8 +146,9 @@ def load_model(
     )
     
     # After initialization remove the dummy file
-    if epath.Path(ckptdir / configs.tag / ".tmp").exists():
-        epath.Path(ckptdir / configs.tag / ".tmp").rmtree()
+    tmp_path = ckptdir / configs.tag / ".tmp"
+    if tmp_path.exists():
+        shutil.rmtree(tmp_path)
     
     # Restore checkpoint
     try:
@@ -281,10 +271,6 @@ if __name__ == "__main__":
                 arr_predicted_spectra[i, :] = np.asarray(jax.device_get(d["predicted_spectra"]))
                 arr_predicted_difference[i, :] = np.asarray(jax.device_get(d["predicted_difference"]))
 
-            # 3.5) Filter the arrays before building the xarray.Dataset
-            filtered_spectra = savgol_filter(arr_spectra, window_length=window_length, polyorder=polyorder, axis=1)
-            filtered_predicted_difference = savgol_filter(arr_predicted_difference, window_length=window_length, polyorder=polyorder, axis=1)
-
             # For wave_number, we just take from the first dictionary (assuming identical for all)
             # Also un-normalizing wave_number
             arr_wave_number[:] = np.asarray(jax.device_get(predictions[0]["wave_number"])) * 800 + 2000
@@ -307,8 +293,6 @@ if __name__ == "__main__":
                 arr_mask_reshaped = arr_mask.reshape(*spatial_shape, len(arr_wave_number))
                 arr_predicted_spectra_reshaped = arr_predicted_spectra.reshape(*spatial_shape, len(arr_wave_number))
                 arr_predicted_difference_reshaped = arr_predicted_difference.reshape(*spatial_shape, len(arr_wave_number))
-                filtered_spectra_reshaped = filtered_spectra.reshape(*spatial_shape, len(arr_wave_number))
-                filtered_predicted_difference_reshaped = filtered_predicted_difference.reshape(*spatial_shape, len(arr_wave_number))
 
                 dims = spatial_dims + ["wave_number"]
             else:
@@ -319,8 +303,6 @@ if __name__ == "__main__":
                 arr_mask_reshaped = arr_mask
                 arr_predicted_spectra_reshaped = arr_predicted_spectra
                 arr_predicted_difference_reshaped = arr_predicted_difference
-                filtered_spectra_reshaped = filtered_spectra
-                filtered_predicted_difference_reshaped = filtered_predicted_difference
                 dims = ["sample", "wave_number"]
 
             # Build Dataset
@@ -331,8 +313,6 @@ if __name__ == "__main__":
                     "mask": (dims, arr_mask_reshaped),
                     "predicted_spectra": (dims, arr_predicted_spectra_reshaped),
                     "predicted_difference": (dims, arr_predicted_difference_reshaped),
-                    "filtered_spectra": (dims, filtered_spectra_reshaped),
-                    "filtered_predicted_difference": (dims, filtered_predicted_difference_reshaped),
                 },
                 coords=coords_dict,
             )

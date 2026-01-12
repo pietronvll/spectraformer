@@ -5,9 +5,5 @@ streamlit==1.31.1
 xarray[io]==2023.11.0
 ipykernel
 tensorboardX
-google-cloud-storage
-gcsfs
 matplotlib
 gpustat
-tabulate
-pybaselines

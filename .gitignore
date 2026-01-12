@@ -19,6 +19,9 @@ data/unmixed/
 *.png
 *temp/
 
+data/unmixed_spatial/min69_highf/
+data/unmixed_spatial/min70_highf/
+# SiC-high-f_not-in-dataset/
 
 # User-specific files
 *.rsuser

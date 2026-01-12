@@ -4,14 +4,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import xarray as xr
-# import pybaselines
 import copy
 
 from scipy.signal import savgol_filter
 
 def preprocess_dataset(
     dataset: xr.DataArray,
-    bg_removal_window: tuple = (2200, 2500),
+    # bg_removal_window: tuple = (2200, 2500),
     sup_norm_threshold: float = 0.15,
     verbose: bool = True,
     is_filter: bool = False,
@@ -29,24 +28,24 @@ def preprocess_dataset(
     Returns:
         xr.DataArray: Processed dataset
     """
-    # Background removal
-    def bg_removal_fn(
-        dataset, 
-        bg_removal_window: tuple = (2200, 2500)
-        ):
-        bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
-        bg_value = bg_removal_window.median()
-        dataset_bg = dataset - bg_value
-        return dataset_bg
+    # # Background removal
+    # def bg_removal_fn(
+    #     dataset, 
+    #     bg_removal_window: tuple = (2200, 2500)
+    #     ):
+    #     bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
+    #     bg_value = bg_removal_window.median()
+    #     dataset_bg = dataset - bg_value
+    #     return dataset_bg
     
-    def proper_bg_removal_fn(
-        dataset, 
-        bg_removal_window: tuple = (2200, 2500)
-        ):
-        bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
-        bg_values = bg_removal_window.median(dim="wave_number")
-        full_ds_bg_removed_per_spectra = dataset - bg_values
-        return full_ds_bg_removed_per_spectra
+    # def proper_bg_removal_fn(
+    #     dataset, 
+    #     bg_removal_window: tuple = (2200, 2500)
+    #     ):
+    #     bg_removal_window = dataset.sel(wave_number=slice(*bg_removal_window))
+    #     bg_values = bg_removal_window.median(dim="wave_number")
+    #     full_ds_bg_removed_per_spectra = dataset - bg_values
+    #     return full_ds_bg_removed_per_spectra
     
     # Negative value removal - by shifting everything towards 0
     def neg_val_removal_fn(dataset):
@@ -190,29 +189,29 @@ def preprocess_dataset(
         )
     
     match option:
-        case 'bg_maxnorm':
-            preprocessed_dataset = maxnorm_fn(
-                bg_removal_fn(
-                    dataset
-                    ) 
-                )
+        # case 'bg_maxnorm':
+        #     preprocessed_dataset = maxnorm_fn(
+        #         bg_removal_fn(
+        #             dataset
+        #             ) 
+        #         )
         
-        case 'maxnorm':
-            preprocessed_dataset = maxnorm_fn(
-                dataset 
-                )
+        # case 'maxnorm':
+        #     preprocessed_dataset = maxnorm_fn(
+        #         dataset 
+        #         )
         
-        case 'bg':
-            preprocessed_dataset = bg_removal_fn(
-                dataset
-                )
+        # case 'bg':
+        #     preprocessed_dataset = bg_removal_fn(
+        #         dataset
+        #         )
 
-        case 'proper_bg_maxnorm':
-            preprocessed_dataset = maxnorm_fn(
-                proper_bg_removal_fn(
-                    dataset
-                    ) 
-                )
+        # case 'proper_bg_maxnorm':
+        #     preprocessed_dataset = maxnorm_fn(
+        #         proper_bg_removal_fn(
+        #             dataset
+        #             ) 
+        #         )
         case 'proper_bg_proper_norm':
             # (data-data.min)/data.max
             preprocessed_dataset = outlier_removal_fn(
