@@ -16,12 +16,21 @@ data/unmixed/
 
 **/data_leo/
 !logs/
-*.png
+# *.png
+*.jpg
+*.jpeg
+*.tif
+*.bmp
+*.gif
+*.pdf
+*.svg
 *temp/
 
 data/unmixed_spatial/min69_highf/
-data/unmixed_spatial/min70_highf/
+# data/unmixed_spatial/min70_highf/
 # SiC-high-f_not-in-dataset/
+
+.conda
 
 # User-specific files
 *.rsuser
