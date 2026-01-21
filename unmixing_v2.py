@@ -1,0 +1,325 @@
+from pathlib import Path
+import numpy as np
+import jax
+import jax.numpy as jnp
+print("JAX devices: ", jax.devices())
+import ml_confs
+import optax
+import orbax.checkpoint as ocp
+import xarray as xr
+from flax.training.train_state import TrainState
+from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
+from spectraformer.model import SpectraFormer
+import shutil
+from spectraformer.inference import predict
+
+jax.config.update("jax_debug_nans", True)
+
+maindir = Path(__file__).parent.resolve()
+
+logdir = maindir / "logs"
+CKPTDIR = maindir / "saved_models" / "checkpoints"
+# Check if logdir and ckptdir exist, if not create them
+logdir.mkdir(parents=True, exist_ok=True)
+CKPTDIR.mkdir(parents=True, exist_ok=True)
+
+datadir = maindir / "data"
+
+# ####################################################################################################
+# Section of Parameters choise for unmixing
+# ####################################################################################################
+
+model_tag = "min70_highf"  # CHOOSE ONE (.yaml file should exist)
+                    # tag also can be found for already trained models in checkpoints folder
+material = 'SiC-high-f_not-in-dataset' #Change this accordingly to the folder name where your mixtures are
+
+is_latest = True
+desired_step = 38775  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.
+
+# ####################################################################################################
+# END of Section of Parameters choise for unmixing
+# ####################################################################################################
+
+configsdir = maindir / "configs"
+configsdir.mkdir(parents=True, exist_ok=True)
+
+config_file_name = f"configs_{model_tag}.yaml"
+config_file_path = configsdir / config_file_name
+
+mixdir = datadir / "parsed_data_spatial" / material
+mixdir.mkdir(parents=True, exist_ok=True)
+
+unmixdir = datadir / "unmixed_spatial"
+unmixdir.mkdir(parents=True, exist_ok=True)
+
+unmixdir_model = unmixdir / model_tag
+unmixdir_model.mkdir(parents=True, exist_ok=True)
+
+unmixdir_model_material = unmixdir_model / material
+unmixdir_model_material.mkdir(parents=True, exist_ok=True)
+
+class CustomTrainState(TrainState):
+    epoch: jax.Array
+
+def load_model(
+    configs,
+    dataset,
+    is_latest: bool = True,
+    desired_step: int = 0,
+    ckptdir: Path = CKPTDIR,
+    ):
+    # For unmixing this schedule is important to keep this as a model parameter. It is necessary for checkpoint matching
+    
+    # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
+    cosine_kwargs = []
+    
+    init_value = 0.1*configs.learning_rate
+    peak_value = configs.learning_rate
+    warmup_steps = 1000 if not hasattr(configs, 'warmup_steps') else configs.warmup_steps
+    decay_steps = 2000 if not hasattr(configs, 'decay_steps') else configs.decay_steps
+    decline_coeff = 1 if not hasattr(configs, 'decline_coeff') else configs.decline_coeff
+    
+    for i in range(100 if not hasattr(configs, 'num_cycles') else configs.num_cycles):
+        end_value = decline_coeff * init_value
+        # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+        cycle_dict = {
+            "init_value": init_value, 
+            "peak_value": peak_value, 
+            "warmup_steps": warmup_steps,
+            "decay_steps": decay_steps,            
+            "end_value": end_value
+        }
+        cosine_kwargs.append(cycle_dict)
+        init_value = end_value
+        peak_value *= decline_coeff
+    
+    
+    learning_rate_fn = optax.schedules.sgdr_schedule(cosine_kwargs=cosine_kwargs)
+    
+    learning_rate_decay = getattr(configs, 'learning_rate_decay', 'Constant')
+    match learning_rate_decay:
+        case "Multiple cosine decay cycles":
+            tx = optax.adam(learning_rate=learning_rate_fn)
+        case "Constant":
+            tx = optax.adam(learning_rate=configs.learning_rate)
+        case _:
+            raise Exception(f"You didn't specify a learning rate schedule!")
+    
+    mask_windows = list(
+        zip(configs.masked_interval_starts, configs.masked_interval_ends)
+    )
+    
+    dummy_example = next(batch_sampler(dataset, mask_windows, batch_size=1))
+    
+    model = SpectraFormer(
+        num_heads=configs.num_heads,
+        num_layers=configs.num_layers,
+        embedding_dim=configs.embedding_dim,
+    )
+    
+    root_key = jax.random.key(seed=configs.root_rng_seed)
+    main_key, params_key, dropout_key = jax.random.split(key=root_key, num=3)
+    
+    variables = model.init(
+        params_key,
+        dummy_example["masked_spectra"][0],
+        dummy_example["wave_number"],
+        dummy_example["mask"],
+        training=False,
+    )
+
+    state = CustomTrainState.create(
+        apply_fn=jax.jit(model.apply, static_argnames=("training",)),
+        params=variables["params"],
+        tx=tx,
+        epoch=jnp.array(0, dtype=jnp.int32),
+        # step=jnp.array(0, dtype=jnp.int32)
+    )
+    
+    ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=5, read_only=True)
+    
+    ckpt_manager = ocp.CheckpointManager(
+        ckptdir / configs.tag,
+        options=ckpt_options,
+        item_handlers=ocp.StandardCheckpointHandler(),
+        metadata=configs.to_dict(),
+    )
+    
+    # After initialization remove the dummy file
+    tmp_path = ckptdir / configs.tag / ".tmp"
+    if tmp_path.exists():
+        shutil.rmtree(tmp_path)
+    
+    # Restore checkpoint
+    try:
+        restored = ckpt_manager.restore(
+            ckpt_manager.latest_step() if is_latest else desired_step,
+            # 90945,
+            args=ocp.args.StandardRestore({"state": state})
+        )
+        state = restored["state"]
+    except ValueError:
+        old_state = TrainState.create(
+                apply_fn=model.apply,
+                params=variables["params"],
+                tx=tx
+                )
+        state = old_state
+        state = ckpt_manager.restore(
+                ckpt_manager.latest_step(), 
+                args=ocp.args.StandardRestore(state)
+                )
+    print(f"Checkpoint restored from step {state.step}.")
+    
+    return state
+
+def prediction_fn(
+    configs,
+    dataset,
+    state
+    ):
+    
+    mask_windows = list(
+        zip(configs.masked_interval_starts, configs.masked_interval_ends)
+    )
+    
+    # Loading Databases
+    test_data = list(batch_sampler(dataset, mask_windows, shuffle=False, batch_size=1))
+    
+    spectraformer_predictions = [
+        predict(
+            state.apply_fn,
+            {"params": state.params},
+            datapoint,
+            datapoint["mask"],
+        )
+        for datapoint in test_data
+    ]
+    return spectraformer_predictions
+
+if __name__ == "__main__":
+    
+    # Config reading
+    configs = ml_confs.from_file(config_file_path)
+    configs.tabulate()
+    
+    # Loading a train dataset to initialize model
+    train_ds = preprocess_dataset(xr.load_dataarray(datadir / f"{configs.train_dataset}.nc"), option='whitaker_hayes_with_outliers')
+    
+    # Initializing a model
+    state = load_model(configs, dataset=train_ds, is_latest=is_latest, desired_step=desired_step)
+    base_path = Path(mixdir)
+    output_base = Path(unmixdir_model_material)
+    
+    # Loop over a folder with mixed spectra we want to process
+    for elem in base_path.rglob('*'):
+        if elem.is_file() and elem.suffix.lower() == '.nc':
+            # Get relative path from base directory
+            relative_path = elem.relative_to(base_path)
+            # Create new filename with original directory structure
+            output_path = output_base / relative_path.with_name(
+                f"unmixed_by_{model_tag}_{relative_path.name}"
+            )
+            # Create parent directories if they don't exist
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+    # Loop over a folder with mixed spectra we want to process
+    for elem in base_path.rglob('*'):
+        if elem.is_file() and elem.suffix.lower() == '.nc':
+            # Get relative path from base directory
+            relative_path = elem.relative_to(base_path)
+            # Create new filename with original directory structure
+            output_path = output_base / relative_path.with_name(
+                f"unmixed_by_{model_tag}_{relative_path.name}"
+            )
+            # Create parent directories if they don't exist
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Loading dataset
+            dataarray_elem = xr.load_dataarray(elem)
+            # Ensure the DataArray has at least two dimensions for preprocessing
+            if len(dataarray_elem.dims) == 1:
+                # Assume the dimension is "wave_number" or similar, add a "sample" dimension
+                dataarray_elem = dataarray_elem.expand_dims("sample")
+            dataset_elem = preprocess_dataset(
+                dataarray_elem, 
+                # is_filter=True, 
+                option='whitaker_hayes_with_outliers'
+                )
+            # Making predictions
+            predictions = prediction_fn(configs, dataset_elem, state)
+            # 1) Figure out how many samples and how long each array is:
+            N = len(predictions)  # Number of dictionaries
+            M = len(predictions[0]["wave_number"])  # Assuming all wave_number arrays have same length
+
+            # 2) Allocate NumPy arrays for each key:
+            arr_spectra = np.zeros((N, M), dtype=np.float32)
+            arr_masked_spectra = np.zeros((N, M), dtype=np.float32)
+            arr_mask = np.zeros((N, M), dtype=bool)
+            arr_predicted_spectra = np.zeros((N, M), dtype=np.float32)
+            arr_predicted_difference = np.zeros((N, M), dtype=np.float32)
+
+            # We'll store wave_number just once, assuming it's the same for all dictionaries:
+            arr_wave_number = np.zeros(M, dtype=np.float32)
+
+            # 3) Populate these arrays by looping over the list of dictionaries:
+            for i, d in enumerate(predictions):
+                # Convert JAX -> NumPy if needed using jax.device_get or np.asarray
+                arr_spectra[i, :] = np.asarray(jax.device_get(d["spectra"]))
+                arr_masked_spectra[i, :] = np.asarray(jax.device_get(d["masked_spectra"]))
+                arr_mask[i, :] = np.asarray(jax.device_get(d["mask"]))
+                arr_predicted_spectra[i, :] = np.asarray(jax.device_get(d["predicted_spectra"]))
+                arr_predicted_difference[i, :] = np.asarray(jax.device_get(d["predicted_difference"]))
+
+            # For wave_number, we just take from the first dictionary (assuming identical for all)
+            # Also un-normalizing wave_number
+            arr_wave_number[:] = np.asarray(jax.device_get(predictions[0]["wave_number"])) * 800 + 2000
+
+            # 4) Build an xarray.Dataset with dimensions ("sample", "wave_number")
+            # 1. Get original spatial dims and coords from dataarray_elem
+            spatial_dims = [dim for dim in dataarray_elem.dims if dim != "wave_number"]
+            coords_dict = {dim: dataarray_elem.coords[dim].values for dim in spatial_dims}
+            coords_dict["wave_number"] = arr_wave_number
+
+            # Determine output shape
+            spatial_shape = [len(coords_dict[dim]) for dim in spatial_dims]
+            output_shape = spatial_shape + [len(arr_wave_number)]
+
+            # Check if arr_spectra.shape[0] == np.prod(spatial_shape)
+            if arr_spectra.shape[0] == np.prod(spatial_shape):
+                # Reshape to (spatial_dims..., wave_number)
+                arr_spectra_reshaped = arr_spectra.reshape(*spatial_shape, len(arr_wave_number))
+                arr_masked_spectra_reshaped = arr_masked_spectra.reshape(*spatial_shape, len(arr_wave_number))
+                arr_mask_reshaped = arr_mask.reshape(*spatial_shape, len(arr_wave_number))
+                arr_predicted_spectra_reshaped = arr_predicted_spectra.reshape(*spatial_shape, len(arr_wave_number))
+                arr_predicted_difference_reshaped = arr_predicted_difference.reshape(*spatial_shape, len(arr_wave_number))
+
+                dims = spatial_dims + ["wave_number"]
+            else:
+                # Fallback: use "sample" dimension
+                coords_dict["sample"] = np.arange(arr_spectra.shape[0])
+                arr_spectra_reshaped = arr_spectra
+                arr_masked_spectra_reshaped = arr_masked_spectra
+                arr_mask_reshaped = arr_mask
+                arr_predicted_spectra_reshaped = arr_predicted_spectra
+                arr_predicted_difference_reshaped = arr_predicted_difference
+                dims = ["sample", "wave_number"]
+
+            # Build Dataset
+            ds = xr.Dataset(
+                {
+                    "spectra": (dims, arr_spectra_reshaped),
+                    "masked_spectra": (dims, arr_masked_spectra_reshaped),
+                    "mask": (dims, arr_mask_reshaped),
+                    "predicted_spectra": (dims, arr_predicted_spectra_reshaped),
+                    "predicted_difference": (dims, arr_predicted_difference_reshaped),
+                },
+                coords=coords_dict,
+            )
+
+            # 5) Save the dataset to NetCDF
+            # Saving predictions
+            ds.to_netcdf(output_path, engine="netcdf4")
+            print(f"Saved unmixed_by_{model_tag}_{elem.name}")
+    
+    print('Unmixing done.')

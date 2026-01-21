@@ -56,8 +56,11 @@ class TransformerEncoderLayer(nn.Module):
         # Multi-head attention
         x_norm = nn.LayerNorm()(x)
         x_norm = nn.MultiHeadDotProductAttention(
-            num_heads=self.num_heads, qkv_features=self.embedding_dim
-        )(x_norm, deterministic=not training)
+            num_heads=self.num_heads,
+            qkv_features=self.embedding_dim,
+            deterministic=not training,
+            dropout_rate=self.dropout_rate,
+        )(x_norm, mask=attn_mask)
         x = x + nn.Dense(self.embedding_dim)(x_norm)  # Residual connection
         x_norm = nn.LayerNorm()(x)
         x_norm = FFBlock(self.embedding_dim, self.dropout_rate)(
@@ -98,4 +101,5 @@ class SpectraFormer(nn.Module):
             )(x, attn_mask, training=training)
         x = nn.LayerNorm()(x)
         x = nn.Dense(1)(x)
+        x = jnp.exp(x)
         return x

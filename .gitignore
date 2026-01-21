@@ -68,6 +68,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.conda
 
 # Spyder project settings
 .spyderproject
@@ -104,9 +105,41 @@ wandb/
 mlruns/
 lightning_logs/
 checkpoints/
+!saved_models/checkpoints/
 *.ckpt
 *.pt
 *.pth
 
 # JAX/Flax specific
 orbax/
+
+# Project-specific files
+data/mixtures/
+data/raw_data/
+data/unmixed/
+**/data_leo/
+!logs/
+*.jpg
+*.jpeg
+*.tif
+*.bmp
+*.gif
+*.pdf
+*.svg
+*temp/
+data/unmixed_spatial/min69_highf/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+
+# Node
+node_modules/
