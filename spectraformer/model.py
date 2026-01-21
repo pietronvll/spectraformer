@@ -3,6 +3,12 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax.training.train_state import TrainState
+
+
+class CustomTrainState(TrainState):
+    """Extended TrainState with epoch tracking"""
+    epoch: jax.Array
 
 
 class LinearProjection(nn.Module):
@@ -24,9 +30,6 @@ def test_LinearProjection():
     y = model.apply(variables, x)
     chex.assert_shape(y, (1, 2, 3, 128))
     chex.assert_shape(variables["params"]["Dense_0"]["kernel"], (100, 128))
-
-
-test_LinearProjection()
 
 
 class FFBlock(nn.Module):
@@ -103,3 +106,6 @@ class SpectraFormer(nn.Module):
         x = nn.Dense(1)(x)
         x = jnp.exp(x)
         return x
+
+if __name__ == "__main__":
+    test_LinearProjection()

@@ -9,7 +9,7 @@ import orbax.checkpoint as ocp
 import xarray as xr
 from flax.training.train_state import TrainState
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
-from spectraformer.model import SpectraFormer
+from spectraformer.model import SpectraFormer, CustomTrainState
 import shutil
 from spectraformer.inference import predict
 
@@ -17,10 +17,7 @@ jax.config.update("jax_debug_nans", True)
 
 maindir = Path(__file__).parent.resolve()
 
-logdir = maindir / "logs"
 CKPTDIR = maindir / "saved_models" / "checkpoints"
-# Check if logdir and ckptdir exist, if not create them
-logdir.mkdir(parents=True, exist_ok=True)
 CKPTDIR.mkdir(parents=True, exist_ok=True)
 
 datadir = maindir / "data"
@@ -31,10 +28,10 @@ datadir = maindir / "data"
 
 model_tag = "min70_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
-material = 'buffer+graphene/G1850A11/main' #Change this accordingly to the folder name where your mixtures are - the folder after parsed_data_spatial
+material = 'graphene/my_sample/etc' #Change this accordingly to the folder name where your mixtures are - the folder after parsed_data_spatial
 
 is_latest = True
-desired_step = 38775  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.
+desired_step = 12345  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.
 
 # ####################################################################################################
 # END of Section of Parameters choise for unmixing
@@ -58,9 +55,6 @@ unmixdir_model.mkdir(parents=True, exist_ok=True)
 unmixdir_model_material = unmixdir_model / material
 unmixdir_model_material.mkdir(parents=True, exist_ok=True)
 
-class CustomTrainState(TrainState):
-    epoch: jax.Array
-
 def load_model(
     configs,
     dataset,
@@ -81,7 +75,7 @@ def load_model(
     
     for i in range(100 if not hasattr(configs, 'num_cycles') else configs.num_cycles):
         end_value = decline_coeff * init_value
-        # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+        # 100 cycles - arbitrary large number to ensure enough cycles
         cycle_dict = {
             "init_value": init_value, 
             "peak_value": peak_value, 
@@ -132,8 +126,7 @@ def load_model(
         apply_fn=jax.jit(model.apply, static_argnames=("training",)),
         params=variables["params"],
         tx=tx,
-        epoch=jnp.array(0, dtype=jnp.int32),
-        # step=jnp.array(0, dtype=jnp.int32)
+        epoch=jnp.array(0, dtype=jnp.int32)
     )
     
     ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=5, read_only=True)
@@ -154,7 +147,6 @@ def load_model(
     try:
         restored = ckpt_manager.restore(
             ckpt_manager.latest_step() if is_latest else desired_step,
-            # 90945,
             args=ocp.args.StandardRestore({"state": state})
         )
         state = restored["state"]
@@ -318,7 +310,6 @@ if __name__ == "__main__":
             )
 
             # 5) Save the dataset to NetCDF
-            # Saving predictions
             ds.to_netcdf(output_path, engine="netcdf4")
             print(f"Saved unmixed_by_{model_tag}_{elem.name}")
     

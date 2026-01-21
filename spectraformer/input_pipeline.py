@@ -8,6 +8,75 @@ import copy
 
 from scipy.signal import savgol_filter
 
+
+# Module-level helper functions for preprocessing
+def neg_val_removal_fn(dataset):
+    """Negative value removal - by shifting everything towards 0"""
+    dataset_positive = dataset - dataset.min(dim="wave_number")
+    return dataset_positive
+
+
+def maxnorm_fn(dataset):
+    """Normalization to the max"""
+    dataset_norm = dataset / dataset.max(dim="wave_number")
+    return dataset_norm
+
+
+def shifting_fn(dataset, shift: float = 0):
+    """Shifting from zero by an arbitrary number"""
+    return dataset + shift
+
+
+def proper_norm_fn(dataset):
+    """Normalizing dataset into [0,1] range"""
+    dataset_norm = maxnorm_fn(neg_val_removal_fn(dataset))
+    return dataset_norm
+
+
+def modified_z_score(spectrum):
+    """Calculates the modified z-scores of a given spectrum."""
+    mad_term = np.median([np.abs(spectrum - np.median(spectrum))])
+    modified_z_scores = np.array(0.6745 * (spectrum - np.median(spectrum)) / mad_term)
+    return modified_z_scores
+
+
+def whitaker_hayes_modified_z_score(spectrum):
+    """Calculates the Whitaker-Hayes modified z-scores of a given spectrum."""
+    return np.abs(modified_z_score(np.diff(spectrum)))
+
+
+def whitaker_hayes_spectrum(intensity_values_array, kernel_size, threshold):
+    """Apply Whitaker-Hayes spike detection and removal to a single spectrum."""
+    spectrum_array = copy.deepcopy(intensity_values_array)
+    spikes = whitaker_hayes_modified_z_score(spectrum_array) > threshold
+
+    while any(spike for spike in spikes if spike):
+        changes = False
+        for i in range(len(spikes)):
+            if spikes[i]:
+                neighbours = np.arange(max(0, i - kernel_size),
+                                    min(len(spectrum_array) - 1, i + 1 + kernel_size))
+                fixed_value = np.median(spectrum_array[neighbours[spikes[neighbours] == 0]])
+                if np.isnan(fixed_value):
+                    continue
+                spectrum_array[i] = fixed_value
+                spikes[i] = 0
+                changes = True
+        if not changes:
+            break
+
+    return spectrum_array
+
+
+def whitaker_hayes(intensity_data, kernel_size: int = 3, threshold: int = 8):
+    """Apply Whitaker-Hayes spike detection and removal to all spectra in a DataArray."""
+    return xr.DataArray(
+        np.apply_along_axis(whitaker_hayes_spectrum, axis=-1, arr=intensity_data, kernel_size=kernel_size, threshold=threshold),
+        dims=intensity_data.dims,
+        coords=intensity_data.coords
+    )
+
+
 def preprocess_dataset(
     dataset: xr.DataArray,
     # bg_removal_window: tuple = (2200, 2500),
@@ -46,28 +115,6 @@ def preprocess_dataset(
     #     bg_values = bg_removal_window.median(dim="wave_number")
     #     full_ds_bg_removed_per_spectra = dataset - bg_values
     #     return full_ds_bg_removed_per_spectra
-    
-    # Negative value removal - by shifting everything towards 0
-    def neg_val_removal_fn(dataset):
-        dataset_positive = dataset - dataset.min(dim="wave_number")
-        return dataset_positive
-    
-    # Normalization to the max
-    def maxnorm_fn(dataset):
-        dataset_norm = dataset / dataset.max(dim="wave_number")
-        return dataset_norm
-    
-    # Shifting from zero by an arbitrary number
-    def shifting_fn(
-        dataset, 
-        shift: float = 0
-        ):
-        return dataset + shift
-    
-    # Normalizing dataset into [0,1] range
-    def proper_norm_fn(dataset):
-        dataset_norm = maxnorm_fn( neg_val_removal_fn(dataset) )
-        return dataset_norm
 
     # Spatial dimensions stacking
     def stack_spatial_dims(dataset):
@@ -128,54 +175,6 @@ def preprocess_dataset(
         
     #     # Subtract baseline
     #     return da - baseline_da #, baseline_da
-    
-    def whitaker_hayes(intensity_data, kernel_size: int = 3, threshold: int = 8):
-        return xr.DataArray(
-            np.apply_along_axis(whitaker_hayes_spectrum, axis=-1, arr=intensity_data, kernel_size=kernel_size, threshold=threshold),
-            dims=intensity_data.dims,
-            coords=intensity_data.coords
-            )
-
-
-    def whitaker_hayes_spectrum(intensity_values_array, kernel_size, threshold):
-        spectrum_array = copy.deepcopy(intensity_values_array)
-
-        spikes = whitaker_hayes_modified_z_score(spectrum_array) > threshold
-
-        while any(spike for spike in spikes if spike):
-            changes = False
-
-            for i in range(len(spikes)):
-                if spikes[i]:
-                    neighbours = np.arange(max(0, i - kernel_size),
-                                        min(len(spectrum_array) - 1, i + 1 + kernel_size))
-                    fixed_value = np.median(spectrum_array[neighbours[spikes[neighbours] == 0]]) # Median or mean?
-
-                    if np.isnan(fixed_value):
-                        continue
-
-                    spectrum_array[i] = fixed_value
-                    spikes[i] = 0
-                    changes = True
-
-            if not changes:
-                break
-
-        return spectrum_array
-
-
-    def modified_z_score(spectrum):
-        """Calculates the modified z-scores of a given spectrum."""
-        mad_term = np.median([np.abs(spectrum - np.median(spectrum))])
-        modified_z_scores = np.array(0.6745 * (spectrum - np.median(spectrum)) / mad_term)
-
-        return modified_z_scores
-
-
-    def whitaker_hayes_modified_z_score(spectrum):
-        """Calculates the Whitaker-Hayes modified z-scores of a given spectrum."""
-        return np.abs(modified_z_score(np.diff(spectrum)))
-        # return np.abs(modified_z_score(spectrum))
     
     if is_filter:
         # Apply Savitzky-Golay filter to smooth the dataset

@@ -1,4 +1,3 @@
-import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import xarray as xr
@@ -6,9 +5,7 @@ import xarray as xr
 from pathlib import Path
 from matplotlib import rcParams
 
-from typing import List, Tuple, Sequence, Optional, Dict, Any, Union
-from scipy.optimize import curve_fit
-from scipy.special import wofz
+from typing import List
 from scipy.signal import savgol_filter
 
 rcParams['font.size'] = 24

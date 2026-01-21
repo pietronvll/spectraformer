@@ -1,4 +1,3 @@
-import os
 import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,9 +5,17 @@ import matplotlib.ticker as ticker
 from matplotlib import rcParams, rc
 import matplotlib.gridspec as gridspec
 from mpl_toolkits.axes_grid1.inset_locator import mark_inset
-from matplotlib.collections import LineCollection
 import copy
 from pathlib import Path
+
+from spectraformer.input_pipeline import (
+    neg_val_removal_fn,
+    maxnorm_fn,
+    modified_z_score,
+    whitaker_hayes_modified_z_score,
+    whitaker_hayes_spectrum,
+    whitaker_hayes,
+)
 
 # ---------------------------
 # styling
@@ -28,12 +35,6 @@ peaks = [
 # ---------------------------
 # helpers
 # ---------------------------
-def neg_val_removal_fn(dataset):
-    return dataset - dataset.quantile(0.1, dim="wave_number")
-
-def maxnorm_fn(dataset):
-    return dataset / dataset.max(dim="wave_number")
-
 def mean_std_over_spatial(da):
     spatial_dims = [d for d in da.dims if d != "wave_number"]
     if len(spatial_dims) == 0:
@@ -44,52 +45,6 @@ def mean_std_over_spatial(da):
         std  = da.std(dim=spatial_dims).values
     wn = da["wave_number"].values
     return wn, mean, std
-
-def modified_z_score(spectrum):
-    """Calculates the modified z-scores of a given spectrum."""
-    mad_term = np.median([np.abs(spectrum - np.median(spectrum))])
-    modified_z_scores = np.array(0.6745 * (spectrum - np.median(spectrum)) / mad_term)
-
-    return modified_z_scores
-
-
-def whitaker_hayes_modified_z_score(spectrum):
-    """Calculates the Whitaker-Hayes modified z-scores of a given spectrum."""
-    return np.abs(modified_z_score(np.diff(spectrum)))
-    # return np.abs(modified_z_score(spectrum))
-
-def whitaker_hayes_spectrum(intensity_values_array, kernel_size, threshold):
-    spectrum_array = copy.deepcopy(intensity_values_array)
-
-    spikes = whitaker_hayes_modified_z_score(spectrum_array) > threshold
-
-    while any(spike for spike in spikes if spike):
-        changes = False
-
-        for i in range(len(spikes)):
-            if spikes[i]:
-                neighbours = np.arange(max(0, i - kernel_size),
-                                    min(len(spectrum_array) - 1, i + 1 + kernel_size))
-                fixed_value = np.median(spectrum_array[neighbours[spikes[neighbours] == 0]]) # Median or mean?
-
-                if np.isnan(fixed_value):
-                    continue
-
-                spectrum_array[i] = fixed_value
-                spikes[i] = 0
-                changes = True
-
-        if not changes:
-            break
-
-    return spectrum_array
-
-def whitaker_hayes(intensity_data, kernel_size: int = 3, threshold: int = 3):
-    return xr.DataArray(
-        np.apply_along_axis(whitaker_hayes_spectrum, axis=-1, arr=intensity_data, kernel_size=kernel_size, threshold=threshold),
-        dims=intensity_data.dims,
-        coords=intensity_data.coords
-        )
 
 def plot_mean_with_std(ax, wn, mean, std, label, color,
                        offset=0.0, lw=2.2, shade_alpha=0.6):
@@ -328,5 +283,5 @@ outdir.mkdir(parents=True, exist_ok=True)
 filename = "fig1_with-labels"
 # fig.savefig(f"{outdir}/{filename}.eps", transparent=True, bbox_inches='tight')
 # fig.savefig(f"{outdir}/{filename}.svg", transparent=True, bbox_inches='tight')
-fig.savefig(f"{outdir}/{filename}.png", transparent=True, dpi=96, bbox_inches='tight')
+# fig.savefig(f"{outdir}/{filename}.png", transparent=True, dpi=96, bbox_inches='tight')
 # fig.savefig(f"{outdir}/{filename}.pdf", transparent=True, bbox_inches='tight')

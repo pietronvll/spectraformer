@@ -26,7 +26,7 @@ if __name__ == "__main__":
     # Define directories
 
     datadir = Path(__file__).parent.resolve()
-    material = "buffer+graphene/G1850A11"
+    material = "graphene/my_sample/etc" # Specify your folder
     raw_data_dir = datadir / 'raw_data' / material
     parsed_data_dir = datadir / 'parsed_data_spatial' / material
 

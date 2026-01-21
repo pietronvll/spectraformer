@@ -29,12 +29,6 @@ model_comparison.ipynb
 logbook.md
 
 spectraformer/baselines.py
-unmixing_fitting_comprehensive.py
-
-unmixing.py
-
-unmixed_fitting.py
-unmixed_fitting_dir.py
 
 # clean all the local checkpoints from git tracking
 checkpoints/*
@@ -61,14 +55,57 @@ configs/*
 data/*
 # an example datafile for model initialization
 !data/SiC_19x10x3.nc 
-!data/data_parser_script_v2.py
+
+# the following datafiles were used for figure 1 generation
+
+# number 1.1
+!data/parsed_data_spatial/
+data/parsed_data_spatial/*
+!data/parsed_data_spatial/SiC-high-f/
+data/parsed_data_spatial/SiC-high-f/*
+!data/parsed_data_spatial/SiC-high-f/6H_spectra_20250423/
+data/parsed_data_spatial/SiC-high-f/6H_spectra_20250423/*
+!data/parsed_data_spatial/SiC-high-f/6H_spectra_20250423/5s_5p/
+data/parsed_data_spatial/SiC-high-f/6H_spectra_20250423/5s_5p/*
+!data/parsed_data_spatial/SiC-high-f/6H_spectra_20250423/5s_5p/6H_spectra_20250423_15x15_5s_5p_1.nc
+# number 1.2
+!data/parsed_data_spatial/buffer+graphene/
+data/parsed_data_spatial/buffer+graphene/*
+!data/parsed_data_spatial/buffer+graphene/RUN3REC2_Buffer_20241011_1/
+data/parsed_data_spatial/buffer+graphene/RUN3REC2_Buffer_20241011_1/*
+!data/parsed_data_spatial/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1/
+data/parsed_data_spatial/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1/*
+!data/parsed_data_spatial/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1/RUN3REC2_Buffer_20241011_1_15x15_pt4.nc
+# number 1.3
+!data/parsed_data_spatial/buffer+graphene/main/
+data/parsed_data_spatial/buffer+graphene/main/*
+!data/parsed_data_spatial/buffer+graphene/main/main_8x8_Mixed_8x8.nc
+
+# -//- for figure 3 generation
+# number 3.1 - same as number 1.3
+!data/unmixed_spatial/
+data/unmixed_spatial/*
+!data/unmixed_spatial/min70_highf/
+data/unmixed_spatial/min70_highf/*
+!data/unmixed_spatial/min70_highf/buffer+graphene/
+data/unmixed_spatial/min70_highf/buffer+graphene/*
+!data/unmixed_spatial/min70_highf/buffer+graphene/main/
+data/unmixed_spatial/min70_highf/buffer+graphene/main/*
+!data/unmixed_spatial/min70_highf/buffer+graphene/main/unmixed_by_min70_highf_main_8x8_Mixed_8x8.nc
+# number 3.2
+!data/unmixed_spatial/min70_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/
+data/unmixed_spatial/min70_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/*
+!data/unmixed_spatial/min70_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1/
+data/unmixed_spatial/min70_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1/*
+!data/unmixed_spatial/min70_highf/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1/unmixed_by_min70_highf_RUN3REC2_Buffer_20241011_1_11x11_pt1.nc
+
 
 logs/*
 !logs/spectraformer:min70_highf/
 !logs/spectraformer:min70_highf/*
 
 
-# *.png
+
 # PyInstaller
 *.manifest
 *.spec
@@ -149,8 +186,6 @@ dmypy.json
 wandb/
 mlruns/
 lightning_logs/
-checkpoints/
-!saved_models/checkpoints/
 *.ckpt
 *.pt
 *.pth
@@ -159,11 +194,7 @@ checkpoints/
 orbax/
 
 # Project-specific files
-data/mixtures/
-data/raw_data/
-data/unmixed/
-**/data_leo/
-!logs/
+# *.png
 *.jpg
 *.jpeg
 *.tif
@@ -177,7 +208,6 @@ data/unmixed/
 
 # User-specific files
 *.rsuser
-data/unmixed_spatial/min69_highf/
 
 # Visual Studio
 .vs/

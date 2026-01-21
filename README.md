@@ -4,6 +4,13 @@ SpectraFormer is a transformer-based Machine Learning model aimed for Raman spec
 
 See more: [arXiv](https://arxiv.org/abs/2601.04445) paper
 
+## Usage
+
+1. Parse your `.txt` files with edited `data_parser_script.py`.
+2. Edit and run `unmixing_script.py`.
+
+N.B.: you may train your model using `train_script.py`. For that you may need to have your `.yaml` file in the `configs` folder and to specify it in the train script.
+
 ## Tips
 
 ### Tensorboard

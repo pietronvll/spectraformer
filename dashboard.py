@@ -7,15 +7,12 @@ import optax
 import orbax.checkpoint as ocp
 import streamlit as st
 import xarray as xr
-from etils import epath
+from pathlib import Path
 from flax.training.train_state import TrainState
-
-class CustomTrainState(TrainState):
-    epoch: jax.Array
 
 from spectraformer.inference import plot_results, predict
 from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
-from spectraformer.model import SpectraFormer
+from spectraformer.model import SpectraFormer, CustomTrainState
 
 # Inject custom CSS - for the summary table, mainly for font adjustment
 st.markdown(
@@ -37,23 +34,28 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+maindir = Path(__file__).parent.resolve()
+configsdir = maindir / "configs"
+
 train_data_file = "SiC_19x10x3.nc"
 test_data_file = "SiC_19x10x3.nc"
 
 train_ds = preprocess_dataset(xr.load_dataarray(f"data/{train_data_file}"))
 
-ckpts_path = "saved_models/checkpoints/"
+ckpts_path = maindir / "saved_models/checkpoints/"
 available_models = []
 
-for elem in epath.Path(ckpts_path).iterdir():
+for elem in Path(ckpts_path).iterdir():
     tagname = str(elem).split("/")[-1]
     if tagname != "checkpoints":
+        # Remove 'spectraformer:' prefix if present
+        tagname = tagname.replace("spectraformer:", "")
         available_models.append(tagname)
 
-datasets_path = "data/mixtures/"
+datasets_path = maindir / "data/mixtures/"
 available_datasets = []
 
-for elem in epath.Path(datasets_path).iterdir():
+for elem in Path(datasets_path).iterdir():
     tagname = str(elem).split("/")[-1]
     if tagname != "mixtures":
         available_datasets.append(tagname)
@@ -63,25 +65,28 @@ def load_model(
     model_tag: str, 
     dataset_tag: str,
     desired_step: int,
-    mask_start_tag: int = 1700,    
-    mask_end_tag: int = 2500,
     step_choise_tag: str = 'Latest'
     ):
     
     st.write("Loading Checkpoint")
+    # Add 'spectraformer:' prefix for checkpoint path if not already present
+    checkpoint_tag = model_tag if model_tag.startswith("spectraformer:") else f"spectraformer:{model_tag}"
     ckpt_manager = ocp.CheckpointManager(
-        ckpts_path + model_tag,
+        ckpts_path / checkpoint_tag,
         item_handlers=ocp.StandardCheckpointHandler(),
     )
     st.write("Parsing Configuration File")
-    configs = ml_confs.from_dict(ckpt_manager.metadata())
-    st.write("Checkpoint Metadata:", ckpt_manager.metadata())
+    
+    config_file_name = f"configs_{model_tag}.yaml"
+    config_file_path = configsdir / config_file_name
+    configs = ml_confs.from_file(config_file_path)
+    
     test_ds = preprocess_dataset(xr.load_dataarray(f"data/mixtures/{dataset_tag}"), option='whitaker_hayes')
     
     
     # This is an implementation of learning rate schedule - multiple cosine decay cycles from init_value to init_value*alpha, then repeating from init_value.  
     cosine_kwargs = []
-    for i in range(100):    # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps.
+    for i in range(100):    # 100 cycles - arbitrary large number to ensure enough cycles
         cycle_dict = {
             "init_value": 0.1*configs.learning_rate, 
             "peak_value": configs.learning_rate, 
@@ -100,9 +105,8 @@ def load_model(
             tx = optax.adam(learning_rate=configs.learning_rate)
         case _:
             raise Exception(f"You didn't specify a learning rate schedule!")
-    
     mask_windows = list(
-        zip([1000, mask_end_tag], [mask_start_tag, 2900])
+        zip(configs.masked_interval_starts, configs.masked_interval_ends)
     )
     dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
     
@@ -132,7 +136,6 @@ def load_model(
         params=variables["params"],
         tx=tx,
         epoch=jnp.array(0, dtype=jnp.int32),
-        # step=jnp.array(0, dtype=jnp.int32)
     )
     
     st.write("Restoring Weights")
@@ -185,13 +188,7 @@ st.title("Spectraformer dashboard")
 
 current_dataset_tag = st.selectbox("Select dataset (from mixtures folder):", available_datasets, index=2)
 
-available_mask_start = [1400,1500,1600,1660,1700,1800,1900,1950,2000]
-current_mask_start_tag = st.selectbox("Select left window boundary:", available_mask_start, index=3)
-available_mask_end = [2000,2100,2200,2300,2400,2500,2600,2700,2800]
-current_mask_end_tag = st.selectbox("Select right window boundary:", available_mask_end, index=5)
-
 current_model_tag = st.selectbox("Select model (from a checkpoint):", available_models, index=None)
-
 
 step_choise_tags = ['Latest', 'Desired']
 current_step_choise_tag = st.selectbox("Choose a step to be:", step_choise_tags, index=0)
@@ -210,8 +207,6 @@ if current_model_tag is not None:
             model_tag=current_model_tag,
             dataset_tag=current_dataset_tag,
             desired_step=current_desired_step,
-            mask_start_tag=current_mask_start_tag,
-            mask_end_tag=current_mask_end_tag,
             step_choise_tag=current_step_choise_tag
         )
     

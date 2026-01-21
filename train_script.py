@@ -14,20 +14,18 @@ import orbax.checkpoint as ocp
 from flax.training.train_state import TrainState
 from flax.training.early_stopping import EarlyStopping
 
-class CustomTrainState(TrainState):
-    epoch: jax.Array
+from spectraformer.model import CustomTrainState
 
 @jax.pmap
 def update_epoch(state):
     return state.replace(epoch=state.epoch + 1)
 
 from tensorboardX import SummaryWriter
-# from dataclasses import replace
 
-from spectraformer.input_pipeline import batch_sampler, dataset_loader #, preprocess_dataset
+from spectraformer.input_pipeline import batch_sampler, dataset_loader
 from spectraformer.model import SpectraFormer
 from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap, log_gpu_usage
-from spectraformer.inference import plot_results_train, predict, plot_loss, plot_dataset_pairs
+from spectraformer.inference import plot_results_train, predict, plot_loss
 
 jax.config.update("jax_debug_nans", True)
 
@@ -55,7 +53,7 @@ config_file_name = f"configs_{model_tag}.yaml"
 config_file_path = configsdir / config_file_name
 
 material_name = "SiC-high-f"  # The directory name in parsed_data to load from
-parsed_datadir = datadir / "parsed_data"  # Change this to point to parsed_data
+parsed_datadir = datadir / "parsed_data_spatial"  # Change this to point to parsed_data
 
 # Find all .nc files in the material directory and its subdirectories
 material_dir = parsed_datadir / material_name
@@ -86,7 +84,7 @@ if __name__ == "__main__":
     
     for i in range(20 if not hasattr(configs, 'num_cycles') else configs.num_cycles):
         end_value = decline_coeff * init_value
-        # 100 cycles - because i don't want to think much about making a cycle per N epochs. Schedule is built for steps. UPD: 20 cycles is more than enough
+        # 20 cycles - arbitrary large number to ensure enough cycles
         cycle_dict = {
             "init_value": init_value, 
             "peak_value": peak_value, 
@@ -183,7 +181,6 @@ if __name__ == "__main__":
     if hasattr(configs, 'is_filter') and configs.is_filter:
         print("Filtering: TRUE. Double the amount of data.\n")
     
-    # plot_dataset_pairs(datasets, save_dir='temp/datasets_plots/no_dropping/2', nc_files=dataset_names)
     
     mask_windows = list(
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
@@ -235,9 +232,9 @@ if __name__ == "__main__":
         #----------------------------------------------------------------------------------------------------#
         )
     
-    if not epath.Path(ckptdir / configs.tag).exists():
-        epath.Path(ckptdir / configs.tag).mkdir()
-        epath.Path(ckptdir / configs.tag / ".tmp").touch()
+    if not (ckptdir / configs.tag).exists():
+        (ckptdir / configs.tag).mkdir()
+        (ckptdir / configs.tag / ".tmp").touch()
     
     ckpt_manager = ocp.CheckpointManager(
         ckptdir / configs.tag,
@@ -248,7 +245,7 @@ if __name__ == "__main__":
     
     # After initialization remove the dummy file
     if (ckptdir / configs.tag / ".tmp").exists():
-        (ckptdir / configs.tag / ".tmp").rmdir()
+        (ckptdir / configs.tag / ".tmp").unlink()
     
     if len(ckpt_manager.all_steps()) > 0:
         restored = ckpt_manager.restore(
@@ -288,9 +285,7 @@ if __name__ == "__main__":
     # Training & metrics calculation section
     ####################################################################################################
     state = jax.device_put_replicated(state, jax.devices())
-    print(f"\n===DEBUGGING===          Replicated step shape before main loop: {jnp.shape(state.step)}\n")  # (num_devices,)
-    print(f"\n===DEBUGGING===          Replicated epoch shape before main loop: {jnp.shape(state.epoch)}\n")  # (num_devices,)
-
+    
     # Main training loop
     for epoch in range(restored_epoch + 1, restored_epoch + configs.num_epochs + 1):
         
