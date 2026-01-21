@@ -42,7 +42,7 @@ test_data_file = "SiC_19x10x3.nc"
 
 train_ds = preprocess_dataset(xr.load_dataarray(f"data/{train_data_file}"))
 
-ckpts_path = "/home/dpoteryayev/SpectraFormer/checkpoints/"
+ckpts_path = "saved_models/checkpoints/"
 available_models = []
 
 for elem in epath.Path(ckpts_path).iterdir():
@@ -50,7 +50,7 @@ for elem in epath.Path(ckpts_path).iterdir():
     if tagname != "checkpoints":
         available_models.append(tagname)
 
-datasets_path = "/home/dpoteryayev/SpectraFormer/data/mixtures/"
+datasets_path = "data/mixtures/"
 available_datasets = []
 
 for elem in epath.Path(datasets_path).iterdir():

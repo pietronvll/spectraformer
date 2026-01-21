@@ -31,7 +31,7 @@ datadir = maindir / "data"
 
 model_tag = "min70_highf"  # CHOOSE ONE (.yaml file should exist)
                     # tag also can be found for already trained models in checkpoints folder
-material = 'SiC-high-f_not-in-dataset' #Change this accordingly to the folder name where your mixtures are
+material = 'buffer+graphene/G1850A11/main' #Change this accordingly to the folder name where your mixtures are - the folder after parsed_data_spatial
 
 is_latest = True
 desired_step = 38775  # If you want to use a specific step, set it here. If is_latest is True, this will be ignored.

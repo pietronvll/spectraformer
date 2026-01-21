@@ -6,16 +6,49 @@
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 # Project-specific files
-checkpoints/
-!saved_models/checkpoints/
+model_comparison.ipynb
+logbook.md
+
+spectraformer/baselines.py
+unmixing_fitting_comprehensive.py
+
+unmixing.py
+
+unmixed_fitting.py
+unmixed_fitting_dir.py
+
+# clean all the local checkpoints from git tracking
+checkpoints/*
+# clean all the other saved models
+saved_models/checkpoints/*
+# keep the spectraformer:min70_highf model
+!saved_models/checkpoints/spectraformer:min70_highf/
+# clean all the steps inside the model folder
+saved_models/checkpoints/spectraformer:min70_highf/*
+# but keep the last step 59925
+!saved_models/checkpoints/spectraformer:min70_highf/59925/
+# and its content
+!saved_models/checkpoints/spectraformer:min70_highf/59925/*
+# same for metadata
+!saved_models/checkpoints/spectraformer:min70_highf/metadata/
+!saved_models/checkpoints/spectraformer:min70_highf/metadata/*
+
+
+configs/*
+!configs/configs_min70_highf.yaml
+
 
 # no need to have these at the cluster
-data/mixtures/
-data/raw_data/
-data/unmixed/
+data/*
+# an example datafile for model initialization
+!data/SiC_19x10x3.nc 
+!data/data_parser_script_v2.py
 
-**/data_leo/
-!logs/
+logs/*
+!logs/spectraformer:min70_highf/
+!logs/spectraformer:min70_highf/*
+
+
 # *.png
 *.jpg
 *.jpeg
@@ -25,10 +58,6 @@ data/unmixed/
 *.pdf
 *.svg
 *temp/
-
-data/unmixed_spatial/min69_highf/
-# data/unmixed_spatial/min70_highf/
-# SiC-high-f_not-in-dataset/
 
 .conda
 
