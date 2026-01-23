@@ -1,69 +1,91 @@
-import gpustat
+"""
+SpectraFormer training script.
 
+Usage:
+    python train_script.py --model-tag min70_highf --material SiC-high-f
+    python train_script.py --model-tag min70_highf --material SiC-high-f --regime multi-gpu
+"""
+
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
-import jax
-import jax.numpy as jnp
-print("JAX devices: ", jax.devices())
-num_devices = len(jax.devices())
-print("Number of devices: ", num_devices)
-
-import ml_confs
-import optax
-import orbax.checkpoint as ocp
-from flax.training.train_state import TrainState
-from flax.training.early_stopping import EarlyStopping
-
-from spectraformer.model import CustomTrainState
-
-@jax.pmap
-def update_epoch(state):
-    return state.replace(epoch=state.epoch + 1)
-
-from tensorboardX import SummaryWriter
-
-from spectraformer.input_pipeline import batch_sampler, dataset_loader
-from spectraformer.model import SpectraFormer
-from spectraformer.train import train_epoch, validation_epoch, train_epoch_pmap, validation_epoch_pmap, log_gpu_usage
-from spectraformer.inference import plot_results_train, predict, plot_loss
-
-jax.config.update("jax_debug_nans", True)
-
-maindir = Path(__file__).parent.resolve()
-
-logdir = maindir / "logs"
-ckptdir = maindir / "checkpoints"
-# Check if logdir and ckptdir exist, if not create them
-logdir.mkdir(parents=True, exist_ok=True)
-ckptdir.mkdir(parents=True, exist_ok=True)
-
-datadir = maindir / "data"
-
-model_tag = "min70_highf"  # CHOOSE ONE (.yaml file should exist)
-                    # tag also can be found for already trained models in checkpoints folder
+import tyro
 
 
+@dataclass
+class TrainArgs:
+    """Training configuration arguments."""
 
-training_regime = "All devices" # one from ["One device", "All devices"]
+    model_tag: str = "min70_highf"
+    """Model tag - must match configs/configs_{model_tag}.yaml"""
 
-configsdir = maindir / "configs"
-configsdir.mkdir(parents=True, exist_ok=True)
+    material: str = "SiC-high-f"
+    """Material/dataset directory name under data/parsed_data_spatial/"""
 
-config_file_name = f"configs_{model_tag}.yaml"
-config_file_path = configsdir / config_file_name
+    regime: Literal["single-gpu", "multi-gpu"] = "multi-gpu"
+    """Training regime: single-gpu or multi-gpu (uses all available devices)"""
 
-material_name = "SiC-high-f"  # The directory name in parsed_data to load from
-parsed_datadir = datadir / "parsed_data_spatial"  # Change this to point to parsed_data
+    debug_nans: bool = True
+    """Enable JAX NaN debugging (slower but catches numerical issues)"""
 
-# Find all .nc files in the material directory and its subdirectories
-material_dir = parsed_datadir / material_name
-nc_files = list(material_dir.rglob("*.nc"))
-if not nc_files:
-    raise ValueError(f"No .nc files found in {material_dir}")
 
-if __name__ == "__main__":
-    
-    
+def main(args: TrainArgs) -> None:
+    """Run training with the given arguments."""
+    import gpustat
+    import jax
+    import jax.numpy as jnp
+    import ml_confs
+    import optax
+    import orbax.checkpoint as ocp
+    from flax.training.train_state import TrainState
+    from flax.training.early_stopping import EarlyStopping
+    from tensorboardX import SummaryWriter
+
+    from spectraformer.model import CustomTrainState, SpectraFormer
+    from spectraformer.input_pipeline import batch_sampler, dataset_loader
+    from spectraformer.train import (
+        train_epoch, validation_epoch,
+        train_epoch_pmap, validation_epoch_pmap,
+        log_gpu_usage
+    )
+    from spectraformer.inference import plot_results_train, predict, plot_loss
+
+    jax.config.update("jax_debug_nans", args.debug_nans)
+
+    print("JAX devices:", jax.devices())
+    num_devices = len(jax.devices())
+    print("Number of devices:", num_devices)
+
+    @jax.pmap
+    def update_epoch(state):
+        return state.replace(epoch=state.epoch + 1)
+
+    # Directories
+    maindir = Path(__file__).parent.resolve()
+    logdir = maindir / "logs"
+    ckptdir = maindir / "checkpoints"
+    logdir.mkdir(parents=True, exist_ok=True)
+    ckptdir.mkdir(parents=True, exist_ok=True)
+
+    datadir = maindir / "data"
+    configsdir = maindir / "configs"
+    configsdir.mkdir(parents=True, exist_ok=True)
+
+    # Map CLI regime to internal naming
+    training_regime = "All devices" if args.regime == "multi-gpu" else "One device"
+
+    # Load config
+    config_file_path = configsdir / f"configs_{args.model_tag}.yaml"
+    if not config_file_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_file_path}")
+
+    parsed_datadir = datadir / "parsed_data_spatial"
+    material_dir = parsed_datadir / args.material
+    nc_files = list(material_dir.rglob("*.nc"))
+    if not nc_files:
+        raise ValueError(f"No .nc files found in {material_dir}")
+
     configs = ml_confs.from_file(config_file_path)
     configs.tabulate()
     is_early_stop = True if not hasattr(configs, 'is_early_stop') else configs.is_early_stop # turning on early stopping process
@@ -380,7 +402,7 @@ if __name__ == "__main__":
                     raise Exception(f"Specify loss_fn correctly in config!")
             
             # Making a plot as in a dashboard
-            fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], model_tag)
+            fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], args.model_tag)
             metric_writer.add_figure('model_predictions', fig_res, global_step=state.epoch[0])
             
             # print(dummy_wave_number)
@@ -388,7 +410,7 @@ if __name__ == "__main__":
             # print(dummy_example["spectra"])
             # print(dummy_prediction["predicted_spectra"])
             
-            fig_loss, ax_loss = plot_loss(dummy_wave_number, loss, state.step[0], state.epoch[0], model_tag)
+            fig_loss, ax_loss = plot_loss(dummy_wave_number, loss, state.step[0], state.epoch[0], args.model_tag)
             metric_writer.add_figure('model_prediction_losses', fig_loss, global_step=state.epoch[0])
             
             metric_writer.add_scalar("train/train_loss_epoch",          train_metrics[-1]["train_loss_step"],   state.epoch[0])
@@ -423,5 +445,10 @@ if __name__ == "__main__":
         
     ckpt_manager.wait_until_finished()
     metric_writer.close()
-    
+
     print("See you later, Alligator!")
+
+
+if __name__ == "__main__":
+    args = tyro.cli(TrainArgs)
+    main(args)

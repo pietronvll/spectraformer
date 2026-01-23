@@ -1,63 +1,146 @@
-# Installation instructions
+# Installation Instructions
 
-Spectraformer has been developed and tested on an environment with `python 3.11`.
+SpectraFormer requires Python 3.10 or later.
 
-To use the model, we recommend to work in VSCode, opening the directory in WSL using Windows or directly on Linux.
+## Quick Start with uv (Recommended)
 
-## Prerequisites
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager that ensures reproducible installations via lock files.
 
-A working installation of Anaconda.
-
-## Step 0: Initialize Conda Environment
-
-Create a new environment with Python 3.11
+### Install uv
 
 ```bash
-conda create --name spectraformer python==3.11
+# On macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or with pip
+pip install uv
 ```
 
-Activate the environment
+### CPU-only Installation (for inference)
 
 ```bash
+git clone https://github.com/pietronvll/SpectraFormer.git
+cd SpectraFormer
+uv sync
+```
+
+### GPU Installation (for training)
+
+For NVIDIA GPU support with CUDA 12:
+
+```bash
+git clone https://github.com/pietronvll/SpectraFormer.git
+cd SpectraFormer
+uv sync --extra cuda12 --extra train
+```
+
+> **Note**: You must have NVIDIA drivers installed (version >= 525.60.13 for CUDA 12).
+> See [JAX's installation guide](https://jax.readthedocs.io/en/latest/installation.html) for details.
+
+## Alternative: pip Installation
+
+If you prefer pip/conda:
+
+### Step 1: Create Environment
+
+```bash
+conda create --name spectraformer python=3.11
 conda activate spectraformer
 ```
 
-## Step 1: Install JAX
+### Step 2: Install JAX
 
-The first step to run Spectraformer is to install JAX.
-
-### CPU-Only
-
+**CPU-only:**
 ```bash
-pip install --upgrade "jax[cpu]"
+pip install "jax[cpu]"
 ```
 
-### GPU
-
-Quoting from [JAX's installation guide](https://jax.readthedocs.io/en/latest/installation.html)
-> JAX supports NVIDIA GPUs that have SM version 5.2 (Maxwell) or newer. Note that Kepler-series GPUs are no longer supported by JAX since NVIDIA has dropped support for Kepler GPUs in its software.
-> You must first install the NVIDIA driver. We recommend installing the newest driver available from NVIDIA, but the driver must be version >= 525.60.13 for CUDA 12 and >= 450.80.02 for CUDA 11 on Linux. If you need to use a newer CUDA toolkit with an older driver, for example on a cluster where you cannot update the NVIDIA driver easily, you may be able to use the CUDA forward compatibility packages that NVIDIA provides for this purpose.
-
-Once drivers are installed run
-
+**GPU (CUDA 12):**
 ```bash
-pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install "jax[cuda12]"
 ```
 
-## Step 2: Install the additional requirements
+### Step 3: Install SpectraFormer
 
+**CPU inference only:**
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
-## Step 3 [Optional]: CA-Certificates for GCS
+**GPU training:**
+```bash
+pip install -e ".[cuda12,train]"
+```
 
-On Linux and BSD, if TensorStore is built with a bundled version of libcurl, as is the default, it expects to find the system certificate authority (CA) bundle in PEM format at `/etc/ssl/certs/ca-certificates.crt`, which is the location used by most Linux distributions. If the system CA bundle is available at that path, no additional configuration is necessary.
+## Usage
 
-If the system CA bundle is not available at that path, you can specify an alternative certificate bundle path or certificate directory at runtime with the `TENSORSTORE_CA_BUNDLE` or `TENSORSTORE_CA_PATH` environment variables.
+### Inference CLI
 
-For example, one can add to `.bashrc` the line
+After installation, use the `spectraformer-unmix` command:
 
 ```bash
+# Basic usage (CPU)
+spectraformer-unmix \
+    --checkpoint checkpoints/spectraformer:min70_highf \
+    --input data/my_spectra.nc \
+    --output data/unmixed_spectra.nc
+
+# With GPU
+spectraformer-unmix \
+    --checkpoint checkpoints/spectraformer:min70_highf \
+    --input data/my_spectra.nc \
+    --output data/unmixed_spectra.nc \
+    --device gpu
+```
+
+### Training
+
+Training uses the YAML configuration files in `configs/`:
+
+```bash
+# Basic usage
+python train_script.py --model-tag min70_highf --material SiC-high-f
+
+# Single GPU
+python train_script.py --model-tag min70_highf --material my_data --regime single-gpu
+
+# Multi-GPU (default)
+python train_script.py --model-tag min70_highf --material my_data --regime multi-gpu
+
+# Show all options
+python train_script.py --help
+```
+
+Arguments:
+- `--model-tag`: Must match `configs/configs_{model_tag}.yaml`
+- `--material`: Data directory name under `data/parsed_data_spatial/`
+- `--regime`: `single-gpu` or `multi-gpu` (default)
+
+## Troubleshooting
+
+### TensorStore CA Certificates (Linux)
+
+If you encounter certificate errors with TensorStore/Orbax checkpoints, set the CA bundle path:
+
+```bash
+export TENSORSTORE_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+# or
 export TENSORSTORE_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt
+```
+
+Add this line to your `.bashrc` or `.zshrc` to make it permanent.
+
+### JAX Device Selection
+
+To force CPU even when GPU is available:
+
+```bash
+JAX_PLATFORMS=cpu spectraformer-unmix --checkpoint ... --input ... --output ...
+```
+
+Or in Python:
+```python
+import os
+os.environ["JAX_PLATFORMS"] = "cpu"
+import jax  # import after setting environment variable
 ```
