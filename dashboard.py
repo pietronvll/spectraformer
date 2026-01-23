@@ -4,10 +4,13 @@ SpectraFormer Dashboard - Interactive visualization for spectral unmixing result
 Run with: streamlit run dashboard.py
 """
 
-import sys
+import logging
 from pathlib import Path
 
 import streamlit as st
+
+# Suppress absl "read only" warnings from orbax checkpoint
+logging.getLogger("absl").setLevel(logging.ERROR)
 
 # Page configuration - must be first Streamlit command
 st.set_page_config(
@@ -72,8 +75,6 @@ def load_model_and_predict(checkpoint_tag: str, dataset_path: Path, ckpts_path: 
     """Load model from checkpoint and run predictions on dataset."""
     import jax
     import jax.numpy as jnp
-    import flax.linen as nn
-    import numpy as np
     import optax
     import orbax.checkpoint as ocp
     import xarray as xr
@@ -194,27 +195,74 @@ def load_model_and_predict(checkpoint_tag: str, dataset_path: Path, ckpts_path: 
         for datapoint in test_data
     ]
 
-    # Generate model summary
-    tabulate_fn = nn.tabulate(
-        model,
-        jax.random.key(0),
-        depth=1,
-        console_kwargs={"force_terminal": False, "color_system": None},
-    )
-    model_summary = tabulate_fn(
-        dummy_example["masked_spectra"][0],
-        dummy_example["wave_number"],
-        dummy_example["mask"],
-        training=False,
+    # Count model parameters
+    num_params = sum(x.size for x in jax.tree_util.tree_leaves(state.params))
+
+    return state, predictions, num_params, configs, mask_windows
+
+
+def create_spectrum_plot(prediction: dict, model_name: str):
+    """Create an interactive Plotly figure for spectrum visualization."""
+    import numpy as np
+    import plotly.graph_objects as go
+
+    wave_number = np.asarray(prediction["wave_number"])
+    # Un-normalize wave_number if needed
+    if np.max(np.abs(wave_number)) < 10:
+        wave_number = wave_number * 800 + 2000
+
+    fig = go.Figure()
+
+    # Add traces for each data series
+    colors = {"spectra": "#1f77b4", "predicted_spectra": "#ff7f0e", "predicted_difference": "#2ca02c"}
+    names = {"spectra": "Spectra", "predicted_spectra": "Predicted spectra", "predicted_difference": "Predicted difference"}
+
+    for key in ["spectra", "predicted_spectra", "predicted_difference"]:
+        data = np.asarray(prediction[key])
+        fig.add_trace(
+            go.Scatter(
+                x=wave_number,
+                y=data,
+                mode="lines",
+                name=names[key],
+                line=dict(color=colors[key], width=1.5),
+                hovertemplate=f"{names[key]}<br>Raman shift: %{{x:.1f}} cm⁻¹<br>Intensity: %{{y:.4f}}<extra></extra>",
+            )
+        )
+
+    # Add vertical lines at mask boundaries
+    mask = np.asarray(prediction["mask"])
+    mask_boundaries = np.argwhere(np.diff(mask, prepend=np.array([True]))).flatten()
+    for bdr in mask_boundaries:
+        fig.add_vline(
+            x=wave_number[bdr],
+            line_dash="dot",
+            line_color="gray",
+            opacity=0.5,
+        )
+
+    fig.update_layout(
+        title=dict(text=model_name, font=dict(size=16)),
+        xaxis_title="Raman shift (cm⁻¹)",
+        yaxis_title="Intensity (a.u.)",
+        yaxis_range=[-0.3, 1.5],
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        margin=dict(l=60, r=20, t=80, b=60),
+        template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white",
     )
 
-    return state, predictions, model_summary, configs, mask_windows
+    return fig
 
 
 def main():
     """Main dashboard application."""
-    from spectraformer.inference import plot_results
-
     # Setup paths
     maindir = Path(__file__).parent.resolve()
     ckpts_path = maindir / "checkpoints"
@@ -222,7 +270,16 @@ def main():
 
     # --- Sidebar ---
     with st.sidebar:
-        st.title("SpectraFormer")
+        st.title("SpectraFormer Dashboard")
+        st.markdown(
+            """
+            **SpectraFormer** is a transformer-based model
+            for spectral unmixing of Raman spectra.
+
+            Select a model and dataset to visualize
+            predictions.
+            """
+        )
         st.markdown("---")
 
         # Model selection
@@ -282,20 +339,7 @@ def main():
 
         st.markdown("---")
 
-        # Info section
-        st.subheader("Info")
-        st.markdown(
-            """
-            **SpectraFormer** is a transformer-based model
-            for spectral unmixing of Raman spectra.
-
-            Select a model and dataset to visualize
-            predictions.
-            """
-        )
-
     # --- Main content ---
-    st.title("SpectraFormer Dashboard")
 
     if current_model_tag is None:
         st.error("No model checkpoints available. Please add checkpoints to `saved_models/checkpoints/`.")
@@ -307,20 +351,11 @@ def main():
 
     # Load model and run predictions
     try:
-        with st.status(f"Loading model: {current_model_tag}", expanded=True) as status:
-            st.write("Initializing checkpoint manager...")
-            st.write("Loading configuration from metadata...")
-            st.write("Preprocessing dataset...")
-            st.write("Restoring model weights...")
-            st.write("Running predictions...")
-
-            state, predictions, model_summary, configs, mask_windows = load_model_and_predict(
-                checkpoint_tag=current_model_tag,
-                dataset_path=dataset_path,
-                ckpts_path=ckpts_path,
-            )
-            status.update(label="Model loaded successfully!", state="complete", expanded=False)
-
+        state, predictions, num_params, configs, mask_windows = load_model_and_predict(
+            checkpoint_tag=current_model_tag,
+            dataset_path=dataset_path,
+            ckpts_path=ckpts_path,
+        )
     except FileNotFoundError as e:
         st.error(f"File not found: {e}")
         return
@@ -332,18 +367,21 @@ def main():
         st.exception(e)
         return
 
-    # Model info metrics
+    # Model info
     st.subheader("Model Information")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
     with col1:
-        st.metric("Model", configs.tag if hasattr(configs, "tag") else current_model_tag)
+        model_name = configs.tag if hasattr(configs, "tag") else f"spectraformer:{current_model_tag}"
+        st.metric("Model", model_name)
     with col2:
-        st.metric("Step", f"{state.step:,}")
-    with col3:
-        epoch_val = state.epoch if hasattr(state, "epoch") else "N/A"
-        st.metric("Epoch", epoch_val)
-    with col4:
-        st.metric("Predictions", len(predictions))
+        # Format parameter count nicely (e.g., 1.2M, 340K)
+        if num_params >= 1_000_000:
+            params_str = f"{num_params / 1_000_000:.1f}M"
+        elif num_params >= 1_000:
+            params_str = f"{num_params / 1_000:.0f}K"
+        else:
+            params_str = str(num_params)
+        st.metric("Parameters", params_str)
 
     st.markdown("---")
 
@@ -363,23 +401,9 @@ def main():
         st.info(f"Showing spectrum {data_idx + 1} of {len(predictions)}")
 
     # Plot
-    fig, ax = plot_results(predictions[data_idx])
-
-    # Customize plot title
-    epoch_str = f"Epoch {state.epoch}" if hasattr(state, "epoch") else "Epoch N/A"
-    ax.set_title(
-        f"{current_model_tag} | Step {state.step:,} | {epoch_str}",
-        fontsize="large",
-    )
-    ax.set_xlabel("Raman shift (cm$^{-1}$)", fontsize="large")
-    ax.set_ylabel("Intensity (a.u.)", fontsize="large")
-    ax.tick_params(axis="both", which="major", labelsize="large")
-
-    st.pyplot(fig)
-
-    # Model architecture summary
-    with st.expander("Model Architecture Summary", expanded=False):
-        st.code(model_summary, language=None)
+    model_name = configs.tag if hasattr(configs, "tag") else f"spectraformer:{current_model_tag}"
+    fig = create_spectrum_plot(predictions[data_idx], model_name)
+    st.plotly_chart(fig, width='stretch')
 
     # Configuration details
     with st.expander("Configuration Details", expanded=False):

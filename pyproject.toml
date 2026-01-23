@@ -38,6 +38,7 @@ dependencies = [
     "matplotlib",
     "loguru>=0.7.3",
     "streamlit>=1.53.1",
+    "plotly>=6.5.2",
 ]
 
 [project.optional-dependencies]

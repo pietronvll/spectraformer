@@ -1,3 +1,7 @@
+---
+title: Running Inference
+---
+
 # Running Inference
 
 SpectraFormer provides a command-line tool for running spectral unmixing inference on Raman spectra data.
@@ -11,27 +15,9 @@ spectraformer-unmix \
     --output results/unmixed_spectra.nc
 ```
 
-## Installation
-
-Make sure SpectraFormer is installed:
-
-```bash
-# Clone the repository
-git clone https://github.com/pietronvll/SpectraFormer.git
-cd SpectraFormer
-
-# Install with uv (recommended)
-uv sync
-
-# Or with pip
-pip install -e .
-```
-
-For GPU support (CUDA 12):
-
-```bash
-uv sync --extra cuda12
-```
+::: tip
+Make sure you have SpectraFormer installed. See the [Installation guide](/installation) for details.
+:::
 
 ## Command-Line Options
 

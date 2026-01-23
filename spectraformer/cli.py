@@ -2,12 +2,13 @@
 SpectraFormer CLI for spectral unmixing inference.
 
 Usage (single file):
-    spectraformer-unmix --checkpoint path/to/checkpoint --input data.nc --output unmixed.nc
+    spectraformer-unmix --checkpoint path/to/checkpoint --input data.nc
 
 Usage (directory):
-    spectraformer-unmix --checkpoint path/to/checkpoint --input data_dir/ --output output_dir/
+    spectraformer-unmix --checkpoint path/to/checkpoint --input data_dir/
 
 Options:
+    --output, -o             Output path (default: unmixed_<input> for files, unmixed/ for directories)
     --device auto|cpu|gpu    Device to run on (default: auto - uses GPU if available)
 """
 
@@ -38,8 +39,8 @@ class UnmixArgs:
     input: Path
     """Path to input NetCDF file (.nc) or directory containing .nc files"""
 
-    output: Annotated[Path, tyro.conf.arg(aliases=["-o"])]
-    """Path for output file (.nc) or directory (if input is a directory)"""
+    output: Annotated[Path | None, tyro.conf.arg(aliases=["-o"])] = None
+    """Path for output file (.nc) or directory. Defaults to 'unmixed_<input>' for files or 'unmixed/' for directories."""
 
     device: Literal["auto", "cpu", "gpu"] = "auto"
     """Device to run inference on (auto uses GPU if available, falls back to CPU)"""
@@ -95,6 +96,13 @@ def run_unmixing(args: UnmixArgs) -> None:
     # Convert paths to absolute
     args.checkpoint = args.checkpoint.resolve()
     args.input = args.input.resolve()
+
+    # Compute default output path if not provided
+    if args.output is None:
+        if args.input.is_dir():
+            args.output = args.input.parent / "unmixed"
+        else:
+            args.output = args.input.parent / f"unmixed_{args.input.name}"
     args.output = args.output.resolve()
 
     # Validate inputs

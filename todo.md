@@ -1,4 +1,5 @@
-- [ ] Remove useless stuff out of dashboard
-- [ ] Use interactive charts in dashboard
+- [x] Remove useless stuff out of dashboard
+- [x] Use interactive charts in dashboard
 - [ ] Retrain model & host it on HF
 - [ ] Docs with vitepress
+- [x] Replace required `--output` argument in spectraformer-unmix cli with a reasonable default
