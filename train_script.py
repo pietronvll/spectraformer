@@ -6,11 +6,21 @@ Usage:
     python train_script.py --model-tag min70_highf --material SiC-high-f --regime multi-gpu
 """
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import tyro
+from loguru import logger
+
+# Configure loguru
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+    level="INFO",
+)
 
 
 @dataclass
@@ -36,6 +46,7 @@ def main(args: TrainArgs) -> None:
     import jax
     import jax.numpy as jnp
     import ml_confs
+    import numpy as np
     import optax
     import orbax.checkpoint as ocp
     from flax.training.train_state import TrainState
@@ -53,9 +64,9 @@ def main(args: TrainArgs) -> None:
 
     jax.config.update("jax_debug_nans", args.debug_nans)
 
-    print("JAX devices:", jax.devices())
-    num_devices = len(jax.devices())
-    print("Number of devices:", num_devices)
+    devices = jax.devices()
+    num_devices = len(devices)
+    logger.info(f"JAX devices: {devices} ({num_devices} total)")
 
     @jax.pmap
     def update_epoch(state):
@@ -196,12 +207,12 @@ def main(args: TrainArgs) -> None:
             if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra']>=configs.batch_size:
                 datasets.append((train_ds, val_ds))
 
-    print(f"\n===== Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir} =====")
-    print(f"===== Total number of spectra in train datasets: {num_spectra_train}, validation datasets: {num_spectra_val}, total: {num_spectra_train + num_spectra_val} =====")
-    print(f"===== Accepted number of spectra in train datasets: {num_spectra_train_accepted}, validation datasets: {num_spectra_val_accepted}, total: {num_spectra_train_accepted + num_spectra_val_accepted} =====\n")
-    
+    logger.info(f"Loaded {len(datasets)}/{len(nc_files)} datasets from {material_dir}")
+    logger.info(f"Total spectra: train={num_spectra_train}, val={num_spectra_val}, total={num_spectra_train + num_spectra_val}")
+    logger.info(f"Accepted spectra: train={num_spectra_train_accepted}, val={num_spectra_val_accepted}, total={num_spectra_train_accepted + num_spectra_val_accepted}")
+
     if hasattr(configs, 'is_filter') and configs.is_filter:
-        print("Filtering: TRUE. Double the amount of data.\n")
+        logger.info("Filtering enabled: doubling data")
     
     
     mask_windows = list(
@@ -210,11 +221,6 @@ def main(args: TrainArgs) -> None:
     
     dummy_example = next(batch_sampler(datasets[0][0], mask_windows, batch_size=1))
     dummy_wave_number = jnp.squeeze(dummy_example["wave_number"])
-    
-    print(dummy_wave_number)
-    print(f"\nDummy example -- Train dataset of length {len(datasets[0][0].spectra)} with leaves of shape:")
-    for k, v in dummy_example.items():
-        print(f"  {k} -> {v.shape}")
     
     model = SpectraFormer(
         num_heads=configs.num_heads,
@@ -242,10 +248,7 @@ def main(args: TrainArgs) -> None:
         params=variables["params"],
         tx=tx,
         epoch=jnp.array(0, dtype=jnp.int32),
-        # step=jnp.array(0, dtype=jnp.int32)
     )
-    # After state creation
-    print("\nInitial step type:", type(state.step))  # Should be DeviceArray
     
     # Checkpointing: load from checkpoint and resume training if available
     ckpt_options = ocp.CheckpointManagerOptions(
@@ -261,7 +264,6 @@ def main(args: TrainArgs) -> None:
     ckpt_manager = ocp.CheckpointManager(
         ckptdir / configs.tag,
         options=ckpt_options,
-        item_handlers=ocp.StandardCheckpointHandler(),
         metadata=configs.to_dict(),
     )
     
@@ -270,17 +272,15 @@ def main(args: TrainArgs) -> None:
         (ckptdir / configs.tag / ".tmp").unlink()
     
     if len(ckpt_manager.all_steps()) > 0:
-        restored = ckpt_manager.restore(
+        state = ckpt_manager.restore(
             ckpt_manager.latest_step(),
-            args=ocp.args.StandardRestore({"state": state})
+            args=ocp.args.StandardRestore(state)
         )
-        state = restored["state"]
-        print(f"Resuming from epoch {state.epoch}, step {state.step}")
+        logger.info(f"Resuming from epoch {state.epoch}, step {state.step}")
     else:
-        print(f"No checkpoint found with tag {configs.tag}, training from scratch.")
-    
+        logger.info(f"No checkpoint found for '{configs.tag}', training from scratch")
+
     restored_epoch = state.epoch
-    print(f'Restored epoch: {restored_epoch}')
     
     metric_writer = SummaryWriter(logdir / configs.tag)
     rng_streams = {"dropout": dropout_key}
@@ -303,32 +303,23 @@ def main(args: TrainArgs) -> None:
     
     # metric_writer.add_graph(model=model)
     
-    ####################################################################################################
-    # Training & metrics calculation section
-    ####################################################################################################
-    state = jax.device_put_replicated(state, jax.devices())
-    
-    # Main training loop
+    # Replicate state across all devices for pmap
+    mesh = jax.sharding.Mesh(np.array(devices), axis_names=('i',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('i'))
+    state = jax.tree.map(lambda x: jnp.stack([x] * num_devices), state)
+    state = jax.device_put(state, sharding)
+
     for epoch in range(restored_epoch + 1, restored_epoch + configs.num_epochs + 1):
-        
-        print(f'\n==== Epoch {epoch} -- Begin ====\n')
-        
-        # Restoring early stop ???
-        
-        # Key updating
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
-        
-        # Reset metrics for the epoch
+
         epoch_train_metrics = []
         epoch_val_metrics = []
-        
-        # Shuffle dataset order each epoch
+
         dataset_order = jax.random.permutation(window_RNG_key, len(datasets))
-        print('Dataset order: ',dataset_order)
         
         for ds_idx in dataset_order:
             train_ds, val_ds = datasets[ds_idx]
-            print(f'Dataset number: {ds_idx}, Train dataset lenght: {train_ds.shape[1]}, Val dataset lenght: {val_ds.shape[1]}')
+            logger.debug(f"Dataset {ds_idx}: train={train_ds.shape[1]}, val={val_ds.shape[1]}")
             
             match training_regime:
                 case "One device":
@@ -360,11 +351,7 @@ def main(args: TrainArgs) -> None:
             
             epoch_train_metrics.append(train_metrics_ds)
             epoch_val_metrics.append(val_metrics_ds)
-        
-        # print(f"epoch_train_metrics: {epoch_train_metrics['train_loss_step']}")
-        # print(f"epoch_val_metrics: {epoch_val_metrics['val_loss_step']}")
-        
-        
+
         train_metrics.append(
             jax.tree.map(lambda *xs: jnp.mean(jnp.stack(xs)), *epoch_train_metrics)
         )
@@ -401,15 +388,9 @@ def main(args: TrainArgs) -> None:
                 case _:
                     raise Exception(f"Specify loss_fn correctly in config!")
             
-            # Making a plot as in a dashboard
             fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], args.model_tag)
             metric_writer.add_figure('model_predictions', fig_res, global_step=state.epoch[0])
-            
-            # print(dummy_wave_number)
-            # print(loss)
-            # print(dummy_example["spectra"])
-            # print(dummy_prediction["predicted_spectra"])
-            
+
             fig_loss, ax_loss = plot_loss(dummy_wave_number, loss, state.step[0], state.epoch[0], args.model_tag)
             metric_writer.add_figure('model_prediction_losses', fig_loss, global_step=state.epoch[0])
             
@@ -427,26 +408,29 @@ def main(args: TrainArgs) -> None:
             for gpu_stats in gpustat.new_query():
                 log_gpu_usage(gpu_stats.entry, state.step[0], metric_writer)
             
-            single_state = jax.tree_util.tree_map(lambda x: x[0], state)
+            # Extract first replica and convert to host arrays (removes sharding metadata)
+            single_state = jax.device_get(jax.tree.map(lambda x: x[0], state))
             ckpt_manager.save(
-                step=single_state.step,
-                items={"state": single_state}
+                step=int(single_state.step),
+                args=ocp.args.StandardSave(single_state),
             )
-        print(f'\n==== Epoch {epoch} -- End ====\n')
-        
-        # Early stop
+
         early_stop = early_stop.update(val_metrics[-1]["val_loss_step"])
         best_metric_value = min(metric["val_loss_step"] for metric in val_metrics)
-        metrics_difference = best_metric_value - val_metrics[-1]["val_loss_step"]
-        print(f"\n==== Metrics difference w.r.t. the best value: {metrics_difference:.5e} ==== Patience count {early_stop.patience_count}\n")
+        metrics_diff = val_metrics[-1]["val_loss_step"] - best_metric_value
+        logger.info(
+            f"Epoch {epoch} | "
+            f"train_loss={train_metrics[-1]['train_loss_step']:.4e} | "
+            f"val_loss={val_metrics[-1]['val_loss_step']:.4e} | "
+            f"patience={early_stop.patience_count}/{patience}" if is_early_stop else ""
+        )
         if is_early_stop and early_stop.should_stop:
-            print(f"Met early stopping criteria, breaking at epoch {epoch}. Last saved epoch is {epoch}.")
+            logger.warning(f"Early stopping triggered at epoch {epoch}")
             break
-        
+
     ckpt_manager.wait_until_finished()
     metric_writer.close()
-
-    print("See you later, Alligator!")
+    logger.info("Training completed")
 
 
 if __name__ == "__main__":

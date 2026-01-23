@@ -22,24 +22,22 @@ dependencies = [
     # JAX ecosystem
     # For GPU, install with: uv sync --extra cuda12
     "jax>=0.4.26",
-    "flax==0.7.5",
-    "chex",
-    "optax",
+    "flax>=0.8",
+    "chex>=0.1.86",
+    "optax>=0.2",
     "orbax-checkpoint",
-
     # Data handling
-    "xarray[io]==2023.11.0",
+    "xarray[io]",
     "netcdf4",
-    "numpy==1.26.4",
-
+    "numpy>=1.26,<3",
     # Configuration
     "ml_confs>=0.0.4",
-
     # CLI
     "tyro",
-
     # Visualization (optional but included for convenience)
     "matplotlib",
+    "loguru>=0.7.3",
+    "streamlit>=1.53.1",
 ]
 
 [project.optional-dependencies]

@@ -8,14 +8,24 @@ Usage (directory):
     spectraformer-unmix --checkpoint path/to/checkpoint --input data_dir/ --output output_dir/
 
 Options:
-    --device cpu|gpu    Device to run on (default: cpu)
+    --device auto|cpu|gpu    Device to run on (default: auto - uses GPU if available)
 """
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
-import os
-import sys
+from typing import Literal, Annotated
+
+from loguru import logger
+import tyro
+
+# Configure loguru
+logger.remove()
+logger.add(
+    sys.stderr,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+    level="INFO",
+)
 
 
 @dataclass
@@ -28,18 +38,45 @@ class UnmixArgs:
     input: Path
     """Path to input NetCDF file (.nc) or directory containing .nc files"""
 
-    output: Path
+    output: Annotated[Path, tyro.conf.arg(aliases=["-o"])]
     """Path for output file (.nc) or directory (if input is a directory)"""
 
-    device: Literal["cpu", "gpu"] = "cpu"
-    """Device to run inference on (cpu or gpu)"""
+    device: Literal["auto", "cpu", "gpu"] = "auto"
+    """Device to run inference on (auto uses GPU if available, falls back to CPU)"""
+
+
+def _detect_device(requested: str) -> str:
+    """Detect available device and return the platform to use."""
+    import os
+
+    if requested == "cpu":
+        os.environ["JAX_PLATFORMS"] = "cpu"
+        return "cpu"
+
+    if requested == "gpu":
+        os.environ["JAX_PLATFORMS"] = "cuda"
+        return "gpu"
+
+    # Auto-detect: try GPU first, fall back to CPU
+    try:
+        # Temporarily allow all platforms to check availability
+        import jax
+
+        devices = jax.devices()
+        has_gpu = any("cuda" in str(d).lower() or "gpu" in str(d).lower() for d in devices)
+        if has_gpu:
+            return "gpu"
+        return "cpu"
+    except Exception:
+        os.environ["JAX_PLATFORMS"] = "cpu"
+        return "cpu"
 
 
 def run_unmixing(args: UnmixArgs) -> None:
     """Run spectral unmixing on input data."""
-    # Set device before importing JAX
-    if args.device == "cpu":
-        os.environ["JAX_PLATFORMS"] = "cpu"
+    # Detect device before heavy imports
+    device = _detect_device(args.device)
+    logger.info(f"Using device: {device}")
 
     # Now import JAX and related modules
     import jax
@@ -50,52 +87,56 @@ def run_unmixing(args: UnmixArgs) -> None:
     import xarray as xr
 
     from spectraformer.input_pipeline import batch_sampler, preprocess_dataset
-    from spectraformer.model import SpectraFormer, CustomTrainState
+    from spectraformer.model import CustomTrainState, SpectraFormer
     from spectraformer.inference import predict
 
-    print(f"JAX devices: {jax.devices()}")
+    logger.debug(f"JAX devices: {jax.devices()}")
+
+    # Convert paths to absolute
+    args.checkpoint = args.checkpoint.resolve()
+    args.input = args.input.resolve()
+    args.output = args.output.resolve()
 
     # Validate inputs
     if not args.checkpoint.exists():
-        print(f"Error: Checkpoint directory not found: {args.checkpoint}")
+        logger.error(f"Checkpoint directory not found: {args.checkpoint}")
         sys.exit(1)
 
     if not args.input.exists():
-        print(f"Error: Input path not found: {args.input}")
+        logger.error(f"Input path not found: {args.input}")
         sys.exit(1)
 
     # Determine if input is file or directory
     if args.input.is_dir():
         input_files = list(args.input.rglob("*.nc"))
         if not input_files:
-            print(f"Error: No .nc files found in {args.input}")
+            logger.error(f"No .nc files found in {args.input}")
             sys.exit(1)
         is_batch = True
         args.output.mkdir(parents=True, exist_ok=True)
-        print(f"Found {len(input_files)} .nc files to process")
+        logger.info(f"Found {len(input_files)} .nc files to process")
     else:
         if args.input.suffix.lower() != ".nc":
-            print(f"Error: Input file must be a NetCDF file (.nc), got: {args.input.suffix}")
+            logger.error(f"Input file must be a NetCDF file (.nc), got: {args.input.suffix}")
             sys.exit(1)
         input_files = [args.input]
         is_batch = False
         args.output.parent.mkdir(parents=True, exist_ok=True)
 
     # Load checkpoint with metadata (config)
-    print(f"Loading checkpoint from: {args.checkpoint}")
+    logger.info(f"Loading checkpoint: {args.checkpoint.name}")
 
-    ckpt_options = ocp.CheckpointManagerOptions(max_to_keep=1, read_only=True)
+    ckpt_options = ocp.CheckpointManagerOptions(read_only=True, save_interval_steps=0, create=False)
     ckpt_manager = ocp.CheckpointManager(
         args.checkpoint,
         options=ckpt_options,
-        item_handlers=ocp.StandardCheckpointHandler(),
     )
 
     # Get config from checkpoint metadata
     configs = ckpt_manager.metadata()
     if configs is None:
-        print("Error: Checkpoint does not contain configuration metadata.")
-        print("This checkpoint may have been created with an older version.")
+        logger.error("Checkpoint does not contain configuration metadata")
+        logger.error("This checkpoint may have been created with an older version")
         sys.exit(1)
 
     # Convert dict to namespace-like object for attribute access
@@ -106,10 +147,7 @@ def run_unmixing(args: UnmixArgs) -> None:
 
     configs = Config(configs)
 
-    print(f"Model: {configs.tag}")
-    print(f"  embedding_dim: {configs.embedding_dim}")
-    print(f"  num_heads: {configs.num_heads}")
-    print(f"  num_layers: {configs.num_layers}")
+    logger.info(f"Model: {configs.tag} (layers={configs.num_layers}, heads={configs.num_heads}, dim={configs.embedding_dim})")
 
     # Build learning rate schedule (needed for checkpoint restoration)
     cosine_kwargs = []
@@ -142,13 +180,11 @@ def run_unmixing(args: UnmixArgs) -> None:
         tx = optax.adam(learning_rate=configs.learning_rate)
 
     # Get mask windows from config
-    mask_windows = list(
-        zip(configs.masked_interval_starts, configs.masked_interval_ends)
-    )
+    mask_windows = list(zip(configs.masked_interval_starts, configs.masked_interval_ends))
 
     # Load first file to initialize model
     first_file = input_files[0]
-    print(f"Loading {first_file.name} for model initialization...")
+    logger.debug(f"Loading {first_file.name} for model initialization")
     dataarray = xr.load_dataarray(first_file)
     if len(dataarray.dims) == 1:
         dataarray = dataarray.expand_dims("sample")
@@ -183,28 +219,15 @@ def run_unmixing(args: UnmixArgs) -> None:
     )
 
     # Restore checkpoint
-    try:
-        restored = ckpt_manager.restore(
-            ckpt_manager.latest_step(),
-            args=ocp.args.StandardRestore({"state": state}),
-        )
-        state = restored["state"]
-    except ValueError:
-        # Fallback for older checkpoint format
-        from flax.training.train_state import TrainState
-
-        old_state = TrainState.create(
-            apply_fn=model.apply, params=variables["params"], tx=tx
-        )
-        state = ckpt_manager.restore(
-            ckpt_manager.latest_step(), args=ocp.args.StandardRestore(old_state)
-        )
-
-    print(f"Checkpoint restored from step {state.step}")
+    state = ckpt_manager.restore(
+        ckpt_manager.latest_step(),
+        args=ocp.args.StandardRestore(state),
+    )
+    logger.info(f"Restored checkpoint at step {state.step}")
 
     # Process each input file
     for file_idx, input_file in enumerate(input_files):
-        print(f"\nProcessing [{file_idx + 1}/{len(input_files)}]: {input_file.name}")
+        logger.info(f"Processing [{file_idx + 1}/{len(input_files)}]: {input_file.name}")
 
         # Load and preprocess
         dataarray = xr.load_dataarray(input_file)
@@ -240,14 +263,10 @@ def run_unmixing(args: UnmixArgs) -> None:
             arr_masked_spectra[i, :] = np.asarray(jax.device_get(d["masked_spectra"]))
             arr_mask[i, :] = np.asarray(jax.device_get(d["mask"]))
             arr_predicted_spectra[i, :] = np.asarray(jax.device_get(d["predicted_spectra"]))
-            arr_predicted_difference[i, :] = np.asarray(
-                jax.device_get(d["predicted_difference"])
-            )
+            arr_predicted_difference[i, :] = np.asarray(jax.device_get(d["predicted_difference"]))
 
         # Un-normalize wave_number
-        arr_wave_number = (
-            np.asarray(jax.device_get(predictions[0]["wave_number"])) * 800 + 2000
-        )
+        arr_wave_number = np.asarray(jax.device_get(predictions[0]["wave_number"])) * 800 + 2000
 
         # Build output dataset preserving spatial structure
         spatial_dims = [dim for dim in dataarray.dims if dim != "wave_number"]
@@ -290,9 +309,9 @@ def run_unmixing(args: UnmixArgs) -> None:
             output_file = args.output
 
         ds.to_netcdf(output_file, engine="netcdf4")
-        print(f"  Saved: {output_file}")
+        logger.debug(f"Saved: {output_file}")
 
-    print(f"\nDone! Processed {len(input_files)} file(s).")
+    logger.info(f"Done. Processed {len(input_files)} file(s)")
 
 
 def main() -> None:

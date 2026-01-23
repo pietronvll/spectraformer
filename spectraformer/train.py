@@ -869,10 +869,7 @@ def train_epoch_pmap(
     # Verify final shapes
     for k, v in avg_metrics.items():
         if v.ndim != 0:
-            jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
-    
-    print(f"Training -- Epoch {epoch} -- Loss {avg_metrics['train_loss_step']:.3e}")
-    
+            jax.debug.print("Warning: Metric {k} not scalar after aggregation!")    
     return state, avg_metrics
 
 def validation_epoch_pmap(
@@ -944,8 +941,6 @@ def validation_epoch_pmap(
     for k, v in avg_metrics.items():
         if v.ndim != 0:
             jax.debug.print("Warning: Metric {k} not scalar after aggregation!")
-    
-    print(f"Validation -- Epoch {epoch} -- Loss {avg_metrics['val_loss_step'].item():.3e}")
-    
+        
     return state, avg_metrics
 

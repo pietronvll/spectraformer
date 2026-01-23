@@ -1,0 +1,4 @@
+- [ ] Remove useless stuff out of dashboard
+- [ ] Use interactive charts in dashboard
+- [ ] Retrain model & host it on HF
+- [ ] Docs with vitepress
