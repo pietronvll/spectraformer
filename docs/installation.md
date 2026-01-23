@@ -14,8 +14,8 @@ This guide covers how to install SpectraFormer for both inference and training.
 ## Quick Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/pietronvll/SpectraFormer.git
+# Clone the repository (--depth 1 for faster download)
+git clone --depth 1 https://github.com/pietronvll/SpectraFormer.git
 cd SpectraFormer
 
 # Install with uv (recommended)

@@ -4,6 +4,14 @@ SpectraFormer is a transformer-based Machine Learning model aimed for Raman spec
 
 See more: [arXiv](https://arxiv.org/abs/2601.04445) paper
 
+## Installation
+
+```bash
+git clone --depth 1 https://github.com/pietronvll/SpectraFormer.git
+cd SpectraFormer
+uv sync  # or: pip install -e .
+```
+
 ## Usage
 
 1. Parse your `.txt` files with edited `data_parser_script.py`.
