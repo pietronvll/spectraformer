@@ -287,7 +287,7 @@ def main():
         available_models = get_available_checkpoints(ckpts_path)
 
         if not available_models:
-            st.warning("No checkpoints found in `saved_models/checkpoints/`")
+            st.warning("No checkpoints found in `checkpoints/`")
             current_model_tag = None
         else:
             current_model_tag = st.selectbox(
@@ -342,7 +342,7 @@ def main():
     # --- Main content ---
 
     if current_model_tag is None:
-        st.error("No model checkpoints available. Please add checkpoints to `saved_models/checkpoints/`.")
+        st.error("No model checkpoints available. Please add checkpoints to `checkpoints/`.")
         return
 
     if dataset_path is None:
