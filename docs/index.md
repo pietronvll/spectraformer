@@ -17,11 +17,11 @@ hero:
       link: https://arxiv.org/abs/2601.04445
 ---
 
-## What is SpectraFormer?
+# What is SpectraFormer?
 
 SpectraFormer is a transformer-based model for **spectral unmixing** of Raman data from epitaxial graphene on SiC. It learns to predict and subtract the SiC substrate contribution, isolating the buffer layer signal.
 
-![Pipeline](/pipeline_scheme_v5.png)
+![Pipeline](/pipeline_scheme_v6_lowres.png)
 
 The model masks the SiC spectral region, predicts the missing signal using self-attention, and subtracts it from the original spectrum to extract the graphene/buffer layer contribution.
 

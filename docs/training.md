@@ -32,7 +32,7 @@ Edit the script to point to your data directory before running.
 
 Parsed data should be placed under `data/parsed_data_spatial/` with your material name:
 
-```
+```bash
 data/
 └── parsed_data_spatial/
     └── your-material/
@@ -41,6 +41,7 @@ data/
 ```
 
 The NetCDF files should contain:
+
 - `wave_number` dimension for the spectral axis
 - Intensity values as the data variable
 - Optional spatial dimensions (e.g., `x`, `y` for hyperspectral maps)
@@ -138,7 +139,7 @@ python train_script.py \
 ### Command-Line Options
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| ------ | ------- | ----------- |
 | `--model-tag` | `min70_highf` | Model tag (matches `configs/configs_{tag}.yaml`) |
 | `--material` | `SiC-high-f` | Material directory under `data/parsed_data_spatial/` |
 | `--regime` | `multi-gpu` | Training regime: `single-gpu` or `multi-gpu` |
@@ -155,6 +156,7 @@ tensorboard --logdir=logs --samples_per_plugin images=1000
 ```
 
 This shows:
+
 - Training and validation loss curves
 - Model predictions on sample data
 - Gradient statistics
@@ -171,6 +173,7 @@ watch -n 1 nvidia-smi
 ## Checkpoints
 
 Checkpoints are automatically saved to `checkpoints/{model_tag}/` and include:
+
 - Model weights
 - Optimizer state
 - Training configuration (as metadata)
@@ -198,7 +201,7 @@ The batch size must be divisible by the number of GPUs when using multi-GPU trai
 
 The default schedule uses multiple cosine decay cycles with warmup:
 
-```
+```bash
     peak_value
         *___
    ____/    \____
@@ -213,6 +216,7 @@ init_value
 ### Memory Issues
 
 If you encounter out-of-memory errors:
+
 1. Reduce `batch_size`
 2. Use a smaller model variant (reduce `embedding_dim`, `num_heads`, `num_layers`)
 3. Use single-GPU training with `--regime single-gpu`

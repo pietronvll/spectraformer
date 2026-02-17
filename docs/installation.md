@@ -46,6 +46,7 @@ uv sync --extra train
 ```
 
 This includes:
+
 - `tensorboardX` for logging
 - `gpustat` for GPU monitoring
 

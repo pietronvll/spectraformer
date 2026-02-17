@@ -3,6 +3,8 @@ SpectraFormer Dashboard (Gradio) - Interactive visualization for spectral unmixi
 
 Run with: python dashboard_gradio.py
 Or: gradio dashboard_gradio.py
+
+UPDATED: Handles both old (dict-wrapped) and new (direct) checkpoint formats.
 """
 
 import logging
@@ -59,7 +61,7 @@ def load_model_and_predict(checkpoint_tag: str, dataset_path: Path, ckpts_path: 
         if not checkpoint_tag.startswith("spectraformer:")
         else checkpoint_tag
     )
-    checkpoint_path = ckpts_path / full_tag
+    checkpoint_path = (ckpts_path / full_tag).resolve()
 
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -77,6 +79,8 @@ def load_model_and_predict(checkpoint_tag: str, dataset_path: Path, ckpts_path: 
             "Checkpoint does not contain configuration metadata. "
             "This checkpoint may have been created with an older version."
         )
+    if "custom" in configs_dict:
+        configs_dict = configs_dict["custom"]
 
     # Convert dict to namespace-like object for attribute access
     class Config:
@@ -94,8 +98,9 @@ def load_model_and_predict(checkpoint_tag: str, dataset_path: Path, ckpts_path: 
 
     # Build learning rate schedule (needed for checkpoint restoration)
     cosine_kwargs = []
-    init_value = 0.1 * configs.learning_rate
-    peak_value = configs.learning_rate
+    learning_rate = getattr(configs, "learning_rate", 1e-3)
+    init_value = 0.1 * learning_rate
+    peak_value = learning_rate
     warmup_steps = getattr(configs, "warmup_steps", 1000)
     decay_steps = getattr(configs, "decay_steps", 2000)
     decline_coeff = getattr(configs, "decline_coeff", 1)
@@ -155,11 +160,32 @@ def load_model_and_predict(checkpoint_tag: str, dataset_path: Path, ckpts_path: 
         epoch=jnp.array(0, dtype=jnp.int32),
     )
 
-    # Restore checkpoint - direct state restoration (not wrapped in dict)
-    state = ckpt_manager.restore(
-        ckpt_manager.latest_step(),
-        args=ocp.args.StandardRestore(state),
-    )
+    # Restore checkpoint - try both new and old formats
+    latest_step = ckpt_manager.latest_step()
+    
+    # First, try new format (direct state restoration)
+    try:
+        state = ckpt_manager.restore(
+            latest_step,
+            args=ocp.args.StandardRestore(state),
+        )
+        print(f"Successfully loaded checkpoint using NEW format (direct state)")
+    except Exception as e_new:
+        # If new format fails, try old format (dict-wrapped)
+        try:
+            restored_dict = ckpt_manager.restore(
+                latest_step,
+                args=ocp.args.StandardRestore({"state": state})
+            )
+            state = restored_dict["state"]
+            print(f"Successfully loaded checkpoint using OLD format (dict-wrapped)")
+        except Exception as e_old:
+            # If both fail, provide detailed error message
+            raise ValueError(
+                f"Failed to restore checkpoint in both formats.\n"
+                f"New format error: {str(e_new)}\n"
+                f"Old format error: {str(e_old)}"
+            )
 
     # Run predictions
     test_data = list(batch_sampler(dataset, mask_windows, shuffle=False, batch_size=1))
@@ -209,7 +235,7 @@ def create_spectrum_plot(prediction: dict, model_name: str):
                 mode="lines",
                 name=names[key],
                 line=dict(color=colors[key], width=1.5),
-                hovertemplate=f"{names[key]}<br>Raman shift: %{{x:.1f}} cm\u207b\u00b9<br>Intensity: %{{y:.4f}}<extra></extra>",
+                hovertemplate=f"{names[key]}<br>Raman shift: %{{x:.1f}} cm⁻¹<br>Intensity: %{{y:.4f}}<extra></extra>",
             )
         )
 
@@ -226,48 +252,38 @@ def create_spectrum_plot(prediction: dict, model_name: str):
 
     fig.update_layout(
         title=dict(text=model_name, font=dict(size=16)),
-        xaxis_title="Raman shift (cm\u207b\u00b9)",
-        yaxis_title="Intensity (a.u.)",
-        yaxis_range=[-0.3, 1.5],
+        xaxis_title="Raman shift (cm⁻¹)",
+        yaxis_title="Intensity (normalized)",
         hovermode="x unified",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-        ),
-        margin=dict(l=60, r=20, t=80, b=60),
-        template="plotly_white",
+        showlegend=True,
+        width=1000,
+        height=500,
     )
 
     return fig
 
 
-# Global cache for loaded models
-_model_cache = {}
-
-
-def get_or_load_model(checkpoint_tag: str, dataset_path: Path, ckpts_path: Path):
-    """Cache-aware model loading."""
-    cache_key = (checkpoint_tag, str(dataset_path))
-    if cache_key not in _model_cache:
-        _model_cache[cache_key] = load_model_and_predict(
-            checkpoint_tag, dataset_path, ckpts_path
-        )
-    return _model_cache[cache_key]
-
-
-def create_dashboard():
+def create_dashboard(
+    ckpts_path: Path = Path("./saved_models/checkpoints"),
+    data_path: Path = Path("./data"),
+):
     """Create the Gradio dashboard interface."""
-    # Setup paths
-    maindir = Path(__file__).parent.resolve()
-    ckpts_path = maindir / "checkpoints"
-    data_path = maindir / "data"
 
-    # Get available options
+    # Get available models and datasets
     available_models = get_available_checkpoints(ckpts_path)
     available_datasets = get_available_datasets(data_path)
+
+    # Cache for loaded models (avoid reloading on every slider change)
+    model_cache = {}
+
+    def get_or_load_model(checkpoint_tag: str, dataset_path: Path, ckpts_path: Path):
+        """Load model from cache or disk."""
+        cache_key = (checkpoint_tag, str(dataset_path))
+        if cache_key not in model_cache:
+            model_cache[cache_key] = load_model_and_predict(
+                checkpoint_tag, dataset_path, ckpts_path
+            )
+        return model_cache[cache_key]
 
     def run_inference(
         model_choice: str,
@@ -276,7 +292,7 @@ def create_dashboard():
         uploaded_file,
         spectrum_idx: int,
     ):
-        """Run model inference and return results."""
+        """Run inference and update the plot."""
         if not model_choice:
             return (
                 None,
@@ -398,7 +414,6 @@ def create_dashboard():
     # Build UI
     with gr.Blocks(
         title="SpectraFormer Dashboard",
-        theme=gr.themes.Soft(),
     ) as demo:
         gr.Markdown(
             """
@@ -407,6 +422,8 @@ def create_dashboard():
             **SpectraFormer** is a transformer-based model for spectral unmixing of Raman spectra.
 
             Select a model and dataset to visualize predictions.
+            
+            ✨ **Updated:** Now supports both old and new checkpoint formats!
             """
         )
 
@@ -516,4 +533,6 @@ def create_dashboard():
 
 if __name__ == "__main__":
     demo = create_dashboard()
-    demo.launch()
+    demo.launch(
+        theme=gr.themes.Soft(),
+    )

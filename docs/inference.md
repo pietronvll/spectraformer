@@ -22,7 +22,7 @@ Make sure you have SpectraFormer installed. See the [Installation guide](/instal
 ## Command-Line Options
 
 | Option | Required | Default | Description |
-|--------|----------|---------|-------------|
+| ------ | -------- | ------- | ----------- |
 | `--checkpoint` | Yes | - | Path to the checkpoint directory |
 | `--input` | Yes | - | Input NetCDF file (`.nc`) or directory |
 | `--output` | Yes | - | Output file or directory path |
@@ -85,7 +85,7 @@ Input files must be NetCDF (`.nc`) files containing Raman spectra data with:
 The output NetCDF file contains:
 
 | Variable | Description |
-|----------|-------------|
+| -------- | ----------- |
 | `spectra` | Original input spectra (preprocessed) |
 | `masked_spectra` | Spectra with SiC regions masked |
 | `mask` | Boolean mask indicating masked regions |
@@ -97,6 +97,7 @@ The `predicted_difference` variable contains the extracted graphene contribution
 ## Checkpoints
 
 Checkpoints are stored in `checkpoints/` and contain:
+
 - Model weights
 - Training configuration (stored as metadata)
 - Optimizer state

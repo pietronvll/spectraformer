@@ -1,4 +1,5 @@
-### Worklog 
+# Worklog
+
 - [x] Remove useless stuff out of dashboard
 - [x] Use interactive charts in dashboard
 - [x] Retrain model & host it on HF
@@ -9,17 +10,18 @@
 
 ---
 
-### Cleanup List
+## Cleanup List
 
-#### 1. Dead Code - Functions Never Called
+### 1. Dead Code - Functions Never Called
 
 | File | Function | Lines | Notes |
-|------|----------|-------|-------|
+| ---- | -------- | ----- | ----- |
 | `spectraformer/input_pipeline.py` | `preprocess_dataset_raw()` | 270-314 | Legacy function, replaced by `preprocess_dataset()` |
 | `spectraformer/inference.py` | `plot_results()` | 21-47 | Only `plot_results_train()` is used |
 | `spectraformer/inference.py` | `plot_dataset_pairs()` | 104-150 | Never called anywhere |
 
 **Unused loss functions in `spectraformer/train.py`:**
+
 - [ ] `poisson_loss_fn()` (line 66)
 - [ ] `gamma_loss_fn()` (line 86)
 - [ ] `mse_loss_fn()` (line 106)
@@ -28,12 +30,14 @@
 
 Only `corrected_gamma_loss_fn` and `val_corrected_gamma_fn` are actually used.
 
-#### 2. Duplicate Code Patterns
+### 2. Duplicate Code Patterns
 
 **A. `my_geometric_mean()` defined 4 times identically in `train.py`:**
+
 - Lines 176, 286, 631, 724 - Same 5-line function repeated
 
 **B. NaN/Inf checking pattern repeated ~8 times in `train.py`:**
+
 ```python
 nan_check = jnp.any(jnp.isnan(pred_spectra))
 inf_check = jnp.any(jnp.isinf(pred_spectra))
@@ -41,16 +45,17 @@ lax.cond(nan_check, lambda _: jax.debug.print(...), ...)
 ```
 
 **C. Functions defined twice in `manuscript_figures/fig4/utils.py`:**
+
 - [ ] `build_base_xy()` - lines 650 AND 1211 (identical)
 - [ ] `tile_xy()` - lines 677 AND 1238 (identical)
 - [ ] `read_pdb_xyz_cell()` - lines 692 AND 767 (identical, 75 lines each)
 
 ~150 lines of pure duplicate code in fig4/utils.py alone.
 
-#### 3. Commented-Out Code (Can Be Removed)
+### 3. Commented-Out Code (Can Be Removed)
 
 | File | Lines | Description |
-|------|-------|-------------|
+| ---- | ----- | ----------- |
 | `spectraformer/input_pipeline.py` | 100-117 | Commented background removal |
 | `spectraformer/input_pipeline.py` | 159-177 | Commented Whittaker baseline |
 | `spectraformer/input_pipeline.py` | 191-213 | Commented preprocessing cases |
@@ -59,7 +64,7 @@ lax.cond(nan_check, lambda _: jax.debug.print(...), ...)
 | `spectraformer/train.py` | 405-409 | Commented epoch logging |
 | `manuscript_figures/fig4/utils.py` | 153-217 | Entire commented function |
 
-#### 4. Self-Contained Cleanup Actions
+### 4. Self-Contained Cleanup Actions
 
 **Quick wins (safe to delete):**
 
