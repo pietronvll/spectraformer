@@ -14,10 +14,7 @@ uv sync  # or: pip install -e .
 
 ## Usage
 
-1. Parse your `.txt` files with edited `data_parser_script.py`.
-2. Edit and run `unmixing_script.py`.
-
-N.B.: you may train your model using `train_script.py`. For that you may need to have your `.yaml` file in the `configs` folder and to specify it in the train script.
+Check out the [guide](https://pietronvll.github.io/SpectraFormer/).
 
 ## Tips
 
