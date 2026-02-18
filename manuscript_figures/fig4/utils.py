@@ -1,21 +1,12 @@
-import sys, os
+import os
+import math
 import numpy as np
-import pandas as pd
-
+import re
 import matplotlib.pyplot as plt
-import math, re, glob
-import seaborn as sns
-from matplotlib.collections import LineCollection
-from matplotlib.colors import Normalize
-
-from math import pi, sqrt, log
 from collections import deque
-from scipy.spatial.distance import cdist
-from scipy.optimize import linear_sum_assignment
 from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
 
-from ase import Atoms
-from ase.io import read, write
 
 def smooth_lorentzian(E, y, fwhm_eV):
 
@@ -46,7 +37,7 @@ def smooth_gaussian(f_sorted,w_sorted,sigma):
 
     # Optional: normalize so that area under curve = sum of weights
     df = f_grid[1] - f_grid[0]
-    smoothed *= (np.sum(w_sorted) / np.trapz(smoothed, f_grid))
+    smoothed *= (np.sum(w_sorted) / np.trapezoid(smoothed, f_grid))
     return f_grid, smoothed
 
 def read_xyz_trajectory(path):
@@ -148,73 +139,6 @@ def classify_graphene_sublattices_from_mode(disp_gr):
     e0 = disp_gr[labels_gr == 0].mean(axis=0) 
     e1 = disp_gr[labels_gr == 1].mean(axis=0)
     return labels_gr, e0, e1, ref_index
-
-#project BL mode displacements onto graphene unit cell bipartite pattern
-# def project_BL_mode_on_graphene_unitcell_bipartite(
-#     sic_frames,
-#     gr_frames,
-#     z_threshold=17.0,
-#     frame0=0,
-#     frame1=-1,
-#     bond_dmin=1.3,
-#     bond_dmax=1.6,
-# ):
-#     # --- BL bipartite splitting ---
-#     coords0 = sic_frames[frame0]["coords"]
-#     bl_mask = select_BL_mask(coords0, z_threshold=z_threshold)
-#     bl_indices = np.where(bl_mask)[0]
-
-#     bonds_BL_global = find_bonds(coords0, dmin=bond_dmin, dmax=bond_dmax, subset_idx=bl_indices)
-
-#     # print(bonds_BL_global)
-
-#     # build local index graph
-#     idx_to_local = {idx: i for i, idx in enumerate(bl_indices)}
-#     edges_local  = np.array([[idx_to_local[i], idx_to_local[j]] for i, j in bonds_BL_global], int)
-
-#     ok, colors_local = bipartite_coloring(len(bl_indices), edges_local)
-#     if not ok:
-#         raise RuntimeError("BL graph is not bipartite with given bond cutoffs.")
-
-#     # --- graphene template (from eigenmode) ---
-#     disp_gr = mode_disp(gr_frames, frame0, frame1)
-#     labels_gr, e0, e1, ref_idx = classify_graphene_sublattices_from_mode(disp_gr)
-#     # (we only need e0, e1)
-
-#     # --- BL displacements ---
-#     disp_sic = mode_disp(sic_frames, frame0, frame1)
-#     u_BL     = disp_sic[bl_indices]          # (N_BL,3)
-
-#     # build reference template per BL atom based on its color
-#     e_ref = np.zeros_like(u_BL)
-#     for i, c in enumerate(colors_local):
-#         e_ref[i] = e0 if c == 0 else e1
-
-#     # global normalized overlap
-#     num = np.sum(u_BL * e_ref)
-#     den = np.sqrt(np.sum(u_BL**2) * np.sum(e_ref**2))
-#     overlap = num / den if den > 0 else 0.0
-
-#     # local cosines
-#     u_norm = np.linalg.norm(u_BL, axis=1)
-#     e_norm = np.linalg.norm(e_ref, axis=1)
-#     with np.errstate(divide="ignore", invalid="ignore"):
-#         local_cos = np.where(
-#             (u_norm > 0) & (e_norm > 0),
-#             np.sum(u_BL * e_ref, axis=1) / (u_norm * e_norm),
-#             0.0,
-#         )
-
-#     return {
-#         "overlap": overlap,
-#         "overlap2": overlap**2,
-#         "bl_indices": bl_indices,
-#         "colors_local": colors_local,
-#         "bonds_BL_global": bonds_BL_global,
-#         "template_e0": e0,
-#         "template_e1": e1,
-#         "local_cosines": local_cos,
-#     }
 
 def load_frequencies(freq_file):
     """
@@ -764,38 +688,6 @@ def tile_xyz(base_xyz, a_vec, b_vec, nrep_a, nrep_b):
             all_xyz.append(tmp)
     return np.vstack(all_xyz)
 
-def read_pdb_xyz_cell(pdb_file):
-    """
-    Read x,y,z coordinates from a PDB file and the CRYST1 cell.
-
-    Returns
-    -------
-    coords : (N, 3) array
-        x, y, z positions of atoms
-    cell : dict
-        {'a', 'b', 'c', 'alpha', 'beta', 'gamma'}
-    """
-    a = b = c = alpha = beta = gamma = None
-    coords = []
-
-    with open(pdb_file) as f:
-        for line in f:
-            if line.startswith("CRYST1"):
-                a     = float(line[6:15])
-                b     = float(line[15:24])
-                c     = float(line[24:33])
-                alpha = float(line[33:40])
-                beta  = float(line[40:47])
-                gamma = float(line[47:54])
-            elif line.startswith(("ATOM  ", "HETATM")):
-                x = float(line[30:38])
-                y = float(line[38:46])
-                z = float(line[46:54])
-                coords.append([x, y, z])
-
-    cell = dict(a=a, b=b, c=c, alpha=alpha, beta=beta, gamma=gamma)
-    return np.array(coords, dtype=float), cell
-
 def read_pdb_xy_cell(pdb_file):
     """
     Read x,y coordinates from a PDB file and the CRYST1 cell.
@@ -1208,47 +1100,6 @@ def get_bl_mask(pattern_dir, freq_dict, z_thresh=17.0, file_prefix="SiC.anime"):
     print("BL atoms (z > %.1f):" % z_thresh, mask_bl.sum())
     return mask_bl
 
-def build_base_xy(coords, cell):
-    """
-    Take PDB xy coords + cell, convert to fractional, wrap into [0,1),
-    and return base_xy (atoms in one unit cell) and lattice vectors a_vec, b_vec.
-    """
-    a = cell["a"]
-    b = cell["b"]
-    gamma_deg = cell["gamma"]
-
-    if a is None or b is None or gamma_deg is None:
-        raise RuntimeError("CRYST1 record not found or incomplete in PDB.")
-
-    gamma_rad = np.deg2rad(gamma_deg)
-    a_vec = np.array([a, 0.0])
-    b_vec = np.array([b * np.cos(gamma_rad), b * np.sin(gamma_rad)])
-
-    # Matrix whose columns are a_vec and b_vec
-    M = np.column_stack((a_vec, b_vec))  # shape (2,2)
-
-    # coords^T = M * frac^T  =>  frac^T = M^{-1} coords^T
-    frac = np.linalg.solve(M, coords.T).T  # (N,2)
-    frac_wrapped = frac - np.floor(frac)   # wrap into [0,1)
-
-    # Back to Cartesian: atoms inside a single cell anchored at origin
-    base_xy = frac_wrapped @ M.T
-    return base_xy, a_vec, b_vec
-
-def tile_xy(base_xy, a_vec, b_vec, nrep_a, nrep_b):
-    """
-    Tile base_xy by integer combinations of a_vec and b_vec.
-
-    Returns
-    -------
-    all_xy : (N_tiles*N_atoms, 2)
-    """
-    all_xy = []
-    for ia in range(-nrep_a, nrep_a + 1):
-        for ib in range(-nrep_b, nrep_b + 1):
-            shift = ia * a_vec + ib * b_vec
-            all_xy.append(base_xy + shift)
-    return np.vstack(all_xy)
 
 def tile_values(base_values, nrep_a, nrep_b):
     """
@@ -1391,10 +1242,3 @@ def get_disp_arrows(coords0, cell, displacements, z_cut=17, arrow_scale=1.0):
     ])
 
     return all_xy, all_disp_plot, cell_poly
-
-def sum_atom_intensity_over_group(I_atom, group_global):
-    loc = [global_to_local[g] for g in group_global if g in global_to_local]
-    if not loc:
-        return 0.0
-    loc = np.array(loc, int)
-    return float(I_atom[loc].sum())

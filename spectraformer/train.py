@@ -7,8 +7,34 @@ from flax.training.common_utils import stack_forest
 from flax.training.train_state import TrainState
 import optax
 from functools import partial
+from loguru import logger
 
 from spectraformer.input_pipeline import Batch, batch_sampler
+
+def nan_inf_check(array):
+    # NaN or Inf check using lax
+    nan_check_array = jnp.any(jnp.isnan(array))
+    inf_check_array = jnp.any(jnp.isinf(array))
+    # Use lax.cond to act on the condition
+    lax.cond(nan_check_array, lambda _: jax.debug.print(f"NaN detected in array"), lambda _: None, operand=None)
+    lax.cond(inf_check_array, lambda _: jax.debug.print(f"Inf detected in array"), lambda _: None, operand=None)
+
+def my_geometric_mean(loss, eps=1e-8):
+    """
+    Geometric mean calculating using a formula:
+    GM(x)=exp( 1/N * sum( log(x_i) ) )
+    """
+    
+    # Making sure to have no negative values in the loss with all information keeping
+    non_negative = abs(loss)
+    # Making sure having strictly positive values
+    clipped = jnp.clip(non_negative, eps)
+    # Calculating the log
+    log_values = jnp.log(clipped)
+    # Log averaging
+    mean_log = jnp.mean(log_values)
+    # Going back from log to normal value by exponentiation
+    return jnp.exp(mean_log)
 
 
 def log_gpu_usage(gpustat_entry, step, writer):
@@ -37,6 +63,8 @@ def shard_batch(batch: Batch) -> Batch:
     sharded_batch = {}
     
     for k, v in batch.items():
+        # Convert to JAX array to ensure ndim attribute exists
+        v = jnp.asarray(v)
         if k in ['wave_number', 'mask']:
             # Constant arrays
             v_expanded = jnp.expand_dims(v, axis=0) if v.ndim < 2 else v
@@ -62,96 +90,6 @@ def train_step(
     configs_mean
 ):
     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
-
-    def poisson_loss_fn(params):
-        pred_spectra = state.apply_fn(
-            {"params": params},
-            batch["masked_spectra"],
-            batch["wave_number"],
-            batch["mask"],
-            training=True,
-            rngs={"dropout": dropout_train_key},
-        )
-        
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
-        
-        loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
-        return loss
-
-    def gamma_loss_fn(params):
-        pred_spectra = state.apply_fn(
-            {"params": params},
-            batch["masked_spectra"],
-            batch["wave_number"],
-            batch["mask"],
-            training=True,
-            rngs={"dropout": dropout_train_key},
-        )
-        
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
-        
-        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
-        return loss
-
-    def mse_loss_fn(params):
-        pred_spectra = state.apply_fn(
-            {"params": params},
-            batch["masked_spectra"],
-            batch["wave_number"],
-            batch["mask"],
-            training=True,
-            rngs={"dropout": dropout_train_key},
-        )
-        
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
-        
-        loss = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()
-        return loss
-    
-    def corrected_poisson_loss_fn(params):
-        pred_spectra = state.apply_fn(
-            {"params": params},
-            batch["masked_spectra"],
-            batch["wave_number"],
-            batch["mask"],
-            training=True,
-            rngs={"dropout": dropout_train_key},
-        )
-        # jax.debug.print('Went inside loss fn')
-        
-        # print(f'Shape of predicted spectra: {jnp.shape(pred_spectra)}')
-        
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
-        # jax.debug.print('AFTER CONDITION')
-        # if nan_check_pred_spectra or inf_check_pred_spectra:
-        #     print(f'Training: Replacing NaN -> 1e-2, posinf -> 1, neginf -> 1e-2')
-        #     pred_spectra = jnp.nan_to_num(pred_spectra, nan=1e-2, posinf=1, neginf=1e-2)
-        
-        # print(jnp.any(jnp.isneginf(jnp.log(batch["spectra"] / pred_spectra))))
-        
-        loss = ((pred_spectra - batch["spectra"]) + batch["spectra"] * jnp.log(batch["spectra"] / pred_spectra)).mean()
-        # jax.debug.print('About to exit loss fn')
-        return loss
     
     def corrected_gamma_loss_fn(params):
         pred_spectra = state.apply_fn(
@@ -163,38 +101,15 @@ def train_step(
             rngs={"dropout": dropout_train_key},
         )
         
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
-        
-        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        def my_geometric_mean(loss, eps=1e-8):
-            """
-            Geometric mean calculating using a formula:
-            GM(x)=exp( 1/N * sum( log(x_i) ) )
-            """
-            
-            # Making sure to have no negative values in the loss with all information keeping
-            non_negative = abs(loss)
-            # Making sure having strictly positive values
-            clipped = jnp.clip(non_negative, eps)
-            # Calculating the log
-            log_values = jnp.log(clipped)
-            # Log averaging
-            mean_log = jnp.mean(log_values)
-            # Going back from log to normal value by exponentiation
-            return jnp.exp(mean_log)
+        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         
         match configs_mean:
             case 'Arithmetic':
-                loss = loss.mean()
+                loss = loss_array.mean()
             case 'Geometric':
-                loss = my_geometric_mean(loss)
+                loss = my_geometric_mean(loss_array)
             case _:
                 raise Exception(f"You didn't specify a mean to be used!")
         
@@ -208,13 +123,7 @@ def train_step(
     # Concatenate all gradients into a single array for statistics
     all_grads = jnp.concatenate([jnp.ravel(g) for g in flat_grads])
     
-    # NaN or Inf check using lax
-    nan_check_grads = jnp.any(jnp.isnan(all_grads))
-    inf_check_grads = jnp.any(jnp.isinf(all_grads))
-
-    # Use lax.cond to act on the condition
-    lax.cond(nan_check_grads, lambda _: jax.debug.print("NaN detected in grads"), lambda _: None, operand=None)
-    lax.cond(inf_check_grads, lambda _: jax.debug.print("Inf detected in grads"), lambda _: None, operand=None)
+    nan_inf_check(all_grads)
     
     # Compute gradient parameters for logging
     grad_min = jnp.min(all_grads)
@@ -250,80 +159,24 @@ def validation_step(
                 rngs={"dropout": dropout_val_key},
             )
     
-    # NaN or Inf check using lax
-    nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-    inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-    # Use lax.cond to act on the condition
-    lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for validation step"), lambda _: None, operand=None)
-    lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for validation step"), lambda _: None, operand=None)
-    
-    def val_poisson_loss_fn(params):
-        # Poisson Loss
-        loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
-        return loss
-    
-    def val_gamma_loss_fn(params):
-        # Gamma loss
-        loss = (jnp.log(pred_spectra) + batch["spectra"] / pred_spectra).mean()
-        return loss
-
-    def val_mse_loss_fn(params):
-        # MSE Loss
-        loss = (pred_spectra - batch["spectra"] * jnp.log(pred_spectra)).mean()
-        return loss
-    
-    def val_corrected_poisson_loss_fn(params):
-        # (pred-true)+true*log(true/pred)
-        # if nan_check_pred_spectra or inf_check_pred_spectra:
-        #     print(f'Validation: Replacing NaN -> 1e-2, posinf -> 1, neginf -> 1e-2')
-        #     pred_spectra = jnp.nan_to_num(pred_spectra, nan=1e-2, posinf=1, neginf=1e-2)
-        loss = ((pred_spectra - batch["spectra"]) + batch["spectra"] * jnp.log(batch["spectra"] / pred_spectra)).mean()
-        return loss
+    nan_inf_check(pred_spectra)
     
     def val_corrected_gamma_fn(params):
-        loss = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        def my_geometric_mean(loss, eps=1e-8):
-            """
-            Geometric mean calculating using a formula:
-            GM(x)=exp( 1/N * sum( log(x_i) ) )
-            """
-            
-            # Making sure to have no negative values in the loss with all information keeping
-            non_negative = abs(loss)
-            # Making sure having strictly positive values
-            clipped = jnp.clip(non_negative, eps)
-            # Calculating the log
-            log_values = jnp.log(clipped)
-            # Log averaging
-            mean_log = jnp.mean(log_values)
-            # Going back from log to normal value by exponentiation
-            return jnp.exp(mean_log)
-        
+        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         match configs_mean:
             case 'Arithmetic':
-                loss = loss.mean()
+                loss = loss_array.mean()
             case 'Geometric':
-                loss = my_geometric_mean(loss)
+                loss = my_geometric_mean(loss_array)
             case _:
                 raise Exception(f"You didn't specify a mean to be used!")
-        
-        
         return loss
 
     corrected_gamma_loss = val_corrected_gamma_fn(state.params)
-    # corrected_poisson_loss = val_corrected_poisson_loss_fn(state.params)
-    # poisson_loss = val_poisson_loss_fn(state.params)
-    # gamma_loss = val_gamma_loss_fn(state.params)                                              # Gamma loss
-    # cos_sim = optax.losses.cosine_similarity(pred_spectra, batch["spectra"]).mean()     # Cosine similarity - measure of how close vectors are in terms of a direction (1 - same direction, 0 - orthogonal, -1 - opposite)
     mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
     
     val_metrics = {
         "val_corrected_gamma_loss": corrected_gamma_loss,
-        # "val_corrected_poisson_loss": corrected_poisson_loss,
-        # "val_poisson_loss": poisson_loss,
-        # "val_gamma_loss": gamma_loss, 
-        # "cos_sim": cos_sim, 
         "MSE": mse
         }
     return state, val_metrics
@@ -367,7 +220,7 @@ def train_epoch(
     metrics = stack_forest(metrics)
     avg_metrics = jax.tree.map(jnp.mean, metrics)  # Log the average error of the epoch
 
-    print(f"Epoch {epoch + 1} -- Loss {avg_metrics['train_loss'].item():.3e}")
+    logger.info(f"Epoch {epoch + 1} -- Loss {avg_metrics['train_loss'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
         metric_writer.add_scalar("train/loss", avg_metrics["train_loss"].item(), state.step)
         metric_writer.add_scalar("train/grad_min", avg_metrics["grad_min"].item(), state.step)
@@ -400,13 +253,9 @@ def validation_epoch(
     metrics = stack_forest(metrics)
     avg_metrics = jax.tree.map(jnp.mean, metrics)  # Log the average error of the epoch
 
-    print(f"Validation -- Epoch {epoch + 1} -- CorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e}")
+    logger.info(f"Validation -- Epoch {epoch + 1} -- CorrGamma Loss {avg_metrics['val_corrected_gamma_loss'].item():.3e}")
     if epoch % configs.log_every_epochs == 0:
-        # metric_writer.add_scalar("val/val_poisson_loss", avg_metrics["val_poisson_loss"].item(), state.step)
-        # metric_writer.add_scalar("val/val_corrected_poisson_loss", avg_metrics["val_corrected_poisson_loss"].item(), state.step)
         metric_writer.add_scalar("val/val_corrected_gamma_loss", avg_metrics["val_corrected_gamma_loss"].item(), state.step)
-        # metric_writer.add_scalar("val/val_gamma_loss", avg_metrics["val_gamma_loss"].item(), state.step)
-        # metric_writer.add_scalar("val/cos_sim", avg_metrics["cos_sim"].item(), state.step)
         metric_writer.add_scalar("val/MSE", avg_metrics["MSE"].item(), state.step)
         for gpu_stats in gpustat.new_query():
             log_gpu_usage(gpu_stats.entry, state.step, metric_writer)
@@ -446,10 +295,7 @@ def train_step_pmap_arithmetic(
             rngs={"dropout": dropout_train_key},
         )
         
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print("NaN in pred_spectra"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print("Inf in pred_spectra"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
         loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         
@@ -467,12 +313,7 @@ def train_step_pmap_arithmetic(
             rngs={"dropout": dropout_train_key},
         )
         
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
         loss = jnp.mean( (pred_spectra - batch["spectra"]) ** 2 )
         return loss
@@ -484,8 +325,6 @@ def train_step_pmap_arithmetic(
             local_loss, local_grads = jax.value_and_grad(mse_loss_fn)(state.params)
         case _:
             raise ValueError(f"Unknown loss function: {loss_fn}. Supported: 'CorrGamma', 'MSE'.")
-    # local_loss, local_grads = jax.value_and_grad(corrected_gamma_loss_fn)(state.params)
-    # local_loss, local_grads = jax.value_and_grad(mse_loss_fn)(state.params)
     
     # Average loss across devices
     global_loss = lax.psum(local_loss, axis_name="batch") / num_devices 
@@ -495,12 +334,10 @@ def train_step_pmap_arithmetic(
     # Check final_grads for NaNs, Infs
     flat_grads, _ = jax.tree_util.tree_flatten(final_grads)
     all_grads = jnp.concatenate([jnp.ravel(g) for g in flat_grads])
-    nan_check = jnp.any(jnp.isnan(all_grads))
-    inf_check = jnp.any(jnp.isinf(all_grads))
-    zeros_check = jnp.allclose(all_grads, 0)
-    lax.cond(nan_check, lambda _: jax.debug.print("NaN in final grads"), lambda _: None, operand=None)
-    lax.cond(inf_check, lambda _: jax.debug.print("Inf in final grads"), lambda _: None, operand=None)
     
+    nan_inf_check(all_grads)
+
+    zeros_check = jnp.allclose(all_grads, 0)
     lax.cond(zeros_check, lambda _: jax.debug.print("Zero gradients warning!"), lambda _: None, operand=None)
     
     # Compute gradient parameters for logging
@@ -555,10 +392,7 @@ def validation_step_pmap_arithmetic(
             rngs={"dropout": dropout_train_key},
         )
         
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print("NaN in pred_spectra"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print("Inf in pred_spectra"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
         loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         
@@ -576,12 +410,7 @@ def validation_step_pmap_arithmetic(
             rngs={"dropout": dropout_train_key},
         )
         
-        # NaN or Inf check using lax
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        # Use lax.cond to act on the condition
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isnan(pred_spectra).sum()} NaN detected in pred_spectra for training step"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print(f"{jnp.isinf(pred_spectra).sum()} Inf detected in pred_spectra for training step"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
         loss = jnp.mean( (pred_spectra - batch["spectra"]) ** 2 )
         return loss
@@ -593,8 +422,6 @@ def validation_step_pmap_arithmetic(
             local_loss = mse_loss_fn(state.params)
         case _:
             raise ValueError(f"Unknown loss function: {loss_fn}. Supported: 'CorrGamma', 'MSE'.")
-    # local_loss = corrected_gamma_loss_fn(state.params)
-    # local_loss = mse_loss_fn(state.params)
     
     # Average loss across devices
     global_loss = lax.psum(local_loss, axis_name="batch") / num_devices
@@ -627,13 +454,6 @@ def train_step_pmap_geometric(
     folded_key = jax.random.fold_in(dropout_key, device_idx)
     dropout_train_key = folded_key
     
-    
-    def my_geometric_mean(loss, eps=1e-8):
-        non_negative = abs(loss)
-        clipped = jnp.clip(non_negative, eps)
-        mean_log = jnp.mean(jnp.log(clipped))
-        return jnp.exp(mean_log)
-    
     def corrected_gamma_loss_fn(params):
         pred_spectra = state.apply_fn(
             {"params": params},
@@ -644,10 +464,7 @@ def train_step_pmap_geometric(
             rngs={"dropout": dropout_train_key},
         )
         
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print("NaN in pred_spectra"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print("Inf in pred_spectra"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
         loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         
@@ -668,15 +485,12 @@ def train_step_pmap_geometric(
     weighted_grads = jax.tree.map(lambda g: g * weights, local_grads)
     final_grads = jax.tree.map(lambda wg: lax.psum(wg, axis_name="batch"), weighted_grads)
     
-    # Check final_grads for NaNs, Infs
     flat_grads, _ = jax.tree_util.tree_flatten(final_grads)
     all_grads = jnp.concatenate([jnp.ravel(g) for g in flat_grads])
-    nan_check = jnp.any(jnp.isnan(all_grads))
-    inf_check = jnp.any(jnp.isinf(all_grads))
-    zeros_check = jnp.allclose(all_grads, 0)
-    lax.cond(nan_check, lambda _: jax.debug.print("NaN in final grads"), lambda _: None, operand=None)
-    lax.cond(inf_check, lambda _: jax.debug.print("Inf in final grads"), lambda _: None, operand=None)
     
+    # Check final_grads for NaNs, Infs
+    nan_inf_check(all_grads)
+    zeros_check = jnp.allclose(all_grads, 0)
     lax.cond(zeros_check, lambda _: jax.debug.print("Zero gradients warning!"), lambda _: None, operand=None)
     
     # Compute gradient parameters for logging
@@ -720,13 +534,6 @@ def validation_step_pmap_geometric(
     # Fold key with device-specific index
     folded_key = jax.random.fold_in(dropout_key, device_idx)
     dropout_train_key = folded_key
-    
-    def my_geometric_mean(loss, eps=1e-8):
-        non_negative = abs(loss)
-        clipped = jnp.clip(non_negative, eps)
-        mean_log = jnp.mean(jnp.log(clipped))
-        return jnp.exp(mean_log)
-    
     # Local loss per device function
     def corrected_gamma_loss_fn(params):
         pred_spectra = state.apply_fn(
@@ -738,10 +545,7 @@ def validation_step_pmap_geometric(
             rngs={"dropout": dropout_train_key},
         )
         
-        nan_check_pred_spectra = jnp.any(jnp.isnan(pred_spectra))
-        inf_check_pred_spectra = jnp.any(jnp.isinf(pred_spectra))
-        lax.cond(nan_check_pred_spectra, lambda _: jax.debug.print("NaN in pred_spectra"), lambda _: None, operand=None)
-        lax.cond(inf_check_pred_spectra, lambda _: jax.debug.print("Inf in pred_spectra"), lambda _: None, operand=None)
+        nan_inf_check(pred_spectra)
         
         loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
         
@@ -820,32 +624,6 @@ def train_epoch_pmap(
         dropout_device_keys = jax.random.split(rng_streams["dropout"], num_devices)
         dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]  # Convert to list
         dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
-        
-        # LEGACY CHECKS:
-        # def verify_pmap_inputs(state, batch, dropout_key):
-        #     """Ensure all inputs have rank ≥ 1"""
-        #     # Check TrainState
-        #     # state_shapes = jax.tree.map(lambda x: x.shape if hasattr(x, 'shape') else None, state)
-        #     # print("State shapes:", state_shapes)
-            
-        #     # Check batch
-        #     # batch_shapes = {k: v.shape for k, v in batch.items()}
-        #     # print("Batch shapes:", batch_shapes)
-            
-        #     # Check dropout key
-        #     # print("Dropout key shape:", dropout_key.shape)
-            
-        #     # Verify no scalars
-        #     def assert_rank(name, x):
-        #         if hasattr(x, 'ndim') and x.ndim == 0:
-        #             raise ValueError(f"{name} is scalar! Shape: {x.shape}")
-            
-        #     # jax.tree.map(lambda x: assert_rank("State field", x), state)
-        #     jax.tree.map(lambda x: assert_rank("Batch field", x), batch)
-        #     assert_rank("Dropout key", dropout_key)
-
-        # Usage before compilation:
-        # verify_pmap_inputs(state, batch_sharded, dropout_sharded)
         
         loss_fn=configs.loss_fn
         # 3) Run pmapped train step

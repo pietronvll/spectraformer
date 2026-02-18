@@ -51,11 +51,13 @@ conda activate spectraformer
 ### Step 2: Install JAX
 
 **CPU-only:**
+
 ```bash
 pip install "jax[cpu]"
 ```
 
 **GPU (CUDA 12):**
+
 ```bash
 pip install "jax[cuda12]"
 ```
@@ -63,11 +65,13 @@ pip install "jax[cuda12]"
 ### Step 3: Install SpectraFormer
 
 **CPU inference only:**
+
 ```bash
 pip install -e .
 ```
 
 **GPU training:**
+
 ```bash
 pip install -e ".[cuda12,train]"
 ```
@@ -112,6 +116,7 @@ python train_script.py --help
 ```
 
 Arguments:
+
 - `--model-tag`: Must match `configs/configs_{model_tag}.yaml`
 - `--material`: Data directory name under `data/parsed_data_spatial/`
 - `--regime`: `single-gpu` or `multi-gpu` (default)
@@ -139,6 +144,7 @@ JAX_PLATFORMS=cpu spectraformer-unmix --checkpoint ... --input ... --output ...
 ```
 
 Or in Python:
+
 ```python
 import os
 os.environ["JAX_PLATFORMS"] = "cpu"

@@ -422,8 +422,6 @@ def create_dashboard(
             **SpectraFormer** is a transformer-based model for spectral unmixing of Raman spectra.
 
             Select a model and dataset to visualize predictions.
-            
-            ✨ **Updated:** Now supports both old and new checkpoint formats!
             """
         )
 

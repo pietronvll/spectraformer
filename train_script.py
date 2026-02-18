@@ -418,12 +418,19 @@ def main(args: TrainArgs) -> None:
         early_stop = early_stop.update(val_metrics[-1]["val_loss_step"])
         best_metric_value = min(metric["val_loss_step"] for metric in val_metrics)
         metrics_diff = val_metrics[-1]["val_loss_step"] - best_metric_value
-        logger.info(
-            f"Epoch {epoch} | "
-            f"train_loss={train_metrics[-1]['train_loss_step']:.4e} | "
-            f"val_loss={val_metrics[-1]['val_loss_step']:.4e} | "
-            f"patience={early_stop.patience_count}/{patience}" if is_early_stop else ""
-        )
+        if is_early_stop:
+            logger.info(
+                f"Epoch {epoch} | "
+                f"train_loss={train_metrics[-1]['train_loss_step']:.4e} | "
+                f"val_loss={val_metrics[-1]['val_loss_step']:.4e} | "
+                f"patience={early_stop.patience_count}/{patience}"
+            )
+        else:
+            logger.info(
+                f"Epoch {epoch} | "
+                f"train_loss={train_metrics[-1]['train_loss_step']:.4e} | "
+                f"val_loss={val_metrics[-1]['val_loss_step']:.4e}"
+            )
         if is_early_stop and early_stop.should_stop:
             logger.warning(f"Early stopping triggered at epoch {epoch}")
             break
