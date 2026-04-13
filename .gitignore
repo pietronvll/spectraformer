@@ -218,6 +218,7 @@ orbax/
 *.userosscache
 *.sln.docstates
 *.userprefs
+*.code-workspace
 [Dd]ebug/
 [Rr]elease/
 [Bb]in/
