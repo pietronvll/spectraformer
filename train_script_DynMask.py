@@ -3,7 +3,7 @@ SpectraFormer training script.
 
 Usage:
     python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f
-    python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f --regime multi-gpu
+    python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f --regime multi-gpu --stream-datasets False
 """
 
 import gc
@@ -45,6 +45,9 @@ class TrainArgs:
 
     debug_log_every_batches: int = 1
     """Log every N batches when debug logging is enabled"""
+
+    stream_datasets: bool = True
+    """Load datasets one at a time instead of preloading all"""
 
 
 def main(args: TrainArgs) -> None:
@@ -112,6 +115,7 @@ def main(args: TrainArgs) -> None:
         raise ValueError(f"No .nc files found in {material_dir}")
 
     configs = ml_confs.from_file(config_file_path)
+    stream_datasets = args.stream_datasets
     configs.tabulate()
     is_early_stop = True if not hasattr(configs, 'is_early_stop') else configs.is_early_stop # turning on early stopping process
     min_delta = 1e-4 if not hasattr(configs, 'early_stop_min_delta') else configs.early_stop_min_delta
@@ -197,16 +201,28 @@ def main(args: TrainArgs) -> None:
         zip(configs.masked_interval_starts, configs.masked_interval_ends)
     )
     
+    datasets = []
     dummy_example = None
-    for nc_file, use_filter in dataset_specs:
-        train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
-        if train_ds.sizes['spectra'] >= configs.batch_size:
-            dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
+    if stream_datasets:
+        for nc_file, use_filter in dataset_specs:
+            train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
+            if train_ds.sizes['spectra'] >= configs.batch_size:
+                dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
+                del train_ds, val_ds
+                gc.collect()
+                break
             del train_ds, val_ds
             gc.collect()
-            break
-        del train_ds, val_ds
-        gc.collect()
+    else:
+        for nc_file, use_filter in dataset_specs:
+            train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
+            if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra'] >= configs.batch_size:
+                datasets.append((train_ds, val_ds, nc_file.name, use_filter))
+                if dummy_example is None:
+                    dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
+            else:
+                del train_ds, val_ds
+        logger.info(f"Preloaded {len(datasets)} datasets into memory")
 
     if dummy_example is None:
         raise ValueError("No dataset has enough spectra for the current batch size.")
@@ -306,21 +322,30 @@ def main(args: TrainArgs) -> None:
         epoch_train_metrics = []
         epoch_val_metrics = []
 
-        dataset_order = jax.random.permutation(window_RNG_key, len(dataset_specs))
+        dataset_order = jax.random.permutation(
+            window_RNG_key,
+            len(dataset_specs) if stream_datasets else len(datasets),
+        )
         
         for ds_idx in dataset_order:
-            nc_file, use_filter = dataset_specs[int(ds_idx)]
-            train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
-            logger.debug(
-                f"Dataset {nc_file.name} (filter={use_filter}): train={train_ds.shape[1]}, val={val_ds.shape[1]}"
-            )
-            if train_ds.sizes['spectra'] < configs.batch_size or val_ds.sizes['spectra'] < configs.batch_size:
-                logger.warning(
-                    f"Skipping {nc_file.name}: insufficient spectra for batch size {configs.batch_size}"
+            if stream_datasets:
+                nc_file, use_filter = dataset_specs[int(ds_idx)]
+                train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
+                logger.debug(
+                    f"Dataset {nc_file.name} (filter={use_filter}): train={train_ds.shape[1]}, val={val_ds.shape[1]}"
                 )
-                del train_ds, val_ds
-                gc.collect()
-                continue
+                if train_ds.sizes['spectra'] < configs.batch_size or val_ds.sizes['spectra'] < configs.batch_size:
+                    logger.warning(
+                        f"Skipping {nc_file.name}: insufficient spectra for batch size {configs.batch_size}"
+                    )
+                    del train_ds, val_ds
+                    gc.collect()
+                    continue
+            else:
+                train_ds, val_ds, dataset_name, use_filter = datasets[int(ds_idx)]
+                logger.debug(
+                    f"Dataset {dataset_name} (filter={use_filter}): train={train_ds.shape[1]}, val={val_ds.shape[1]}"
+                )
             
             match training_regime:
                 case "One device":
@@ -353,8 +378,9 @@ def main(args: TrainArgs) -> None:
             epoch_train_metrics.append(train_metrics_ds)
             epoch_val_metrics.append(val_metrics_ds)
 
-            del train_ds, val_ds
-            gc.collect()
+            if stream_datasets:
+                del train_ds, val_ds
+                gc.collect()
 
         if not epoch_train_metrics or not epoch_val_metrics:
             logger.warning("No datasets were processed this epoch. Check batch size and dataset sizes.")
