@@ -49,6 +49,7 @@ saved_models/checkpoints/spectraformer:min70_highf/*
 
 configs/*
 !configs/configs_min70_highf.yaml
+!configs/configs_min72_highf.yaml
 
 
 # no need to have these at the cluster
