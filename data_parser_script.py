@@ -25,8 +25,8 @@ def parse_dataset(path: str):
 if __name__ == "__main__":
     # Define directories
 
-    datadir = Path(__file__).parent.resolve()
-    material = "graphene/my_sample/etc" # Specify your folder
+    datadir = Path(__file__).parent / "data"
+    material = "buffer+graphene" # Specify your folder
     raw_data_dir = datadir / 'raw_data' / material
     parsed_data_dir = datadir / 'parsed_data_spatial' / material
 

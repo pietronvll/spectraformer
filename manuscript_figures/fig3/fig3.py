@@ -147,9 +147,12 @@ if __name__ == "__main__":
 
     fig1 = plot_spatial_dataset_mean(graphene_ds, annotations_letters=['(a)', '(c)'])
     fig2 = plot_spatial_dataset_mean(buffer_ds, annotations_letters=['(b)', '(d)'])
-    plt.show()
+    # plt.show()
 
-    outdir = SCRIPT_DIR / "output"
+    outdir = SCRIPT_DIR / "temp"
     outdir.mkdir(parents=True, exist_ok=True)
     fig1.savefig(outdir / "fig3_graphene.png", dpi=90, transparent=True, bbox_inches='tight')
     fig2.savefig(outdir / "fig3_buffer.png", dpi=90, transparent=True, bbox_inches='tight')
+    
+    fig1.savefig(outdir / "fig3_graphene.svg", transparent=True, bbox_inches='tight')
+    fig2.savefig(outdir / "fig3_buffer.svg", transparent=True, bbox_inches='tight')

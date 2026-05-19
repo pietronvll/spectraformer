@@ -133,11 +133,11 @@ for ax in (ax_a_top, ax_a_bottom):
     ax.axis("off")
 import matplotlib.image as mpimg
 
-img_side = mpimg.imread(SCRIPT_DIR / "assets/side_lowres.png")
-img_top  = mpimg.imread(SCRIPT_DIR / "assets/top_lowres.png")
+img_side = mpimg.imread(SCRIPT_DIR / "temp/cropped-high-res-figures/SiC_side-view.png")
+img_top  = mpimg.imread(SCRIPT_DIR / "temp/cropped-high-res-figures/SiC_top-view.png")
 
-ax_a_top.imshow(img_side)
-ax_a_bottom.imshow(img_top)
+ax_a_top.imshow(img_side).set_rasterized(True)
+ax_a_bottom.imshow(img_top).set_rasterized(True)
 
 
 ax_main   = fig.add_subplot(gs[0, 1:])
@@ -277,11 +277,11 @@ plt.show()
 # ---------------------------
 # save
 # ---------------------------
-outdir = SCRIPT_DIR / "output"
+outdir = SCRIPT_DIR / "temp/fig1-output"
 outdir.mkdir(parents=True, exist_ok=True)
 
 filename = "fig1"
 # fig.savefig(outdir / f"{filename}.eps", transparent=True, bbox_inches='tight')
-# fig.savefig(outdir / f"{filename}.svg", transparent=True, bbox_inches='tight')
+fig.savefig(outdir / f"{filename}.svg", transparent=True, bbox_inches='tight', dpi=300)
 # fig.savefig(outdir / f"{filename}.png", transparent=True, dpi=96, bbox_inches='tight')
 # fig.savefig(outdir / f"{filename}.pdf", transparent=True, bbox_inches='tight')
