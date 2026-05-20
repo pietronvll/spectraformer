@@ -207,6 +207,12 @@ def main(args: TrainArgs) -> None:
         logger.info("Filtering enabled: doubling data")
 
     logger.info(f"Found {len(dataset_specs)}/{len(nc_files)} dataset entries from {material_dir}")
+    if args.debug_logging:
+        logger.debug(
+            "Dataset loading mode: stream_datasets={} entries={}",
+            stream_datasets,
+            len(dataset_specs),
+        )
 
     def load_dataset_for_file(nc_file, use_filter: bool):
         relative_path = nc_file.relative_to(parsed_datadir)
@@ -227,7 +233,16 @@ def main(args: TrainArgs) -> None:
     dummy_example = None
     if stream_datasets:
         for nc_file, use_filter in dataset_specs:
+            if args.debug_logging:
+                load_start = time.perf_counter()
             train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
+            if args.debug_logging:
+                logger.debug(
+                    "Loaded dataset {} (filter={}) in {:.3f}s",
+                    nc_file.name,
+                    use_filter,
+                    time.perf_counter() - load_start,
+                )
             if train_ds.sizes['spectra'] >= configs.batch_size:
                 dummy_example = next(batch_sampler(train_ds, mask_windows, batch_size=1))
                 del train_ds, val_ds
@@ -236,8 +251,19 @@ def main(args: TrainArgs) -> None:
             del train_ds, val_ds
             gc.collect()
     else:
+        if args.debug_logging:
+            preload_start = time.perf_counter()
         for nc_file, use_filter in dataset_specs:
+            if args.debug_logging:
+                load_start = time.perf_counter()
             train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
+            if args.debug_logging:
+                logger.debug(
+                    "Loaded dataset {} (filter={}) in {:.3f}s",
+                    nc_file.name,
+                    use_filter,
+                    time.perf_counter() - load_start,
+                )
             if train_ds.sizes['spectra'] >= configs.batch_size and val_ds.sizes['spectra'] >= configs.batch_size:
                 datasets.append((train_ds, val_ds, nc_file.name, use_filter))
                 if dummy_example is None:
@@ -245,6 +271,11 @@ def main(args: TrainArgs) -> None:
             else:
                 del train_ds, val_ds
         logger.info(f"Preloaded {len(datasets)} datasets into memory")
+        if args.debug_logging:
+            logger.debug(
+                "Preload completed in {:.3f}s",
+                time.perf_counter() - preload_start,
+            )
 
     if dummy_example is None:
         raise ValueError("No dataset has enough spectra for the current batch size.")
@@ -353,10 +384,18 @@ def main(args: TrainArgs) -> None:
         for ds_idx in dataset_order:
             if stream_datasets:
                 nc_file, use_filter = dataset_specs[int(ds_idx)]
+                if args.debug_logging:
+                    load_start = time.perf_counter()
                 train_ds, val_ds = load_dataset_for_file(nc_file, use_filter)
                 logger.debug(
                     f"Dataset {nc_file.name} (filter={use_filter}): train={train_ds.shape[1]}, val={val_ds.shape[1]}"
                 )
+                if args.debug_logging:
+                    logger.debug(
+                        "Dataset load time {}: {:.3f}s",
+                        nc_file.name,
+                        time.perf_counter() - load_start,
+                    )
                 if train_ds.sizes['spectra'] < configs.batch_size or val_ds.sizes['spectra'] < configs.batch_size:
                     logger.warning(
                         f"Skipping {nc_file.name}: insufficient spectra for batch size {configs.batch_size}"
@@ -374,26 +413,58 @@ def main(args: TrainArgs) -> None:
                 case "One device":
                     
                     # Training
+                    if args.debug_logging:
+                        train_start = time.perf_counter()
                     state, train_metrics_ds = train_epoch(
                         state, epoch, train_ds, configs, rng_streams,
                         metric_writer, ckpt_manager, window_RNG_key, mean_streams
                     )
+                    if args.debug_logging:
+                        logger.debug(
+                            "Train epoch time (dataset {}) {:.3f}s",
+                            nc_file.name if stream_datasets else dataset_name,
+                            time.perf_counter() - train_start,
+                        )
                     # Validation
+                    if args.debug_logging:
+                        val_start = time.perf_counter()
                     state, val_metrics_ds = validation_epoch(
                         state, epoch, val_ds, configs, rng_streams, 
                         metric_writer, ckpt_manager, mean_streams
                     )
+                    if args.debug_logging:
+                        logger.debug(
+                            "Validation time (dataset {}) {:.3f}s",
+                            nc_file.name if stream_datasets else dataset_name,
+                            time.perf_counter() - val_start,
+                        )
                 case "All devices":
                     
+                    if args.debug_logging:
+                        train_start = time.perf_counter()
                     state, train_metrics_ds = train_epoch_pmap(
                         state=state, epoch=epoch, train_ds=train_ds, configs=configs, 
                         rng_streams=rng_streams, metric_writer=metric_writer, ckpt_manager=ckpt_manager, 
                         window_RNG_key=window_RNG_key, mean_streams=mean_streams
                         )
+                    if args.debug_logging:
+                        logger.debug(
+                            "Train epoch pmap time (dataset {}) {:.3f}s",
+                            nc_file.name if stream_datasets else dataset_name,
+                            time.perf_counter() - train_start,
+                        )
+                    if args.debug_logging:
+                        val_start = time.perf_counter()
                     state, val_metrics_ds = validation_epoch_pmap(
                         state=state, epoch=epoch, val_ds=val_ds, configs=configs, 
                         rng_streams=rng_streams, metric_writer=metric_writer, ckpt_manager=ckpt_manager,
                         window_RNG_key=window_RNG_key, mean_streams=mean_streams
+                        )
+                    if args.debug_logging:
+                        logger.debug(
+                            "Validation epoch pmap time (dataset {}) {:.3f}s",
+                            nc_file.name if stream_datasets else dataset_name,
+                            time.perf_counter() - val_start,
                         )
                 case _:
                     raise Exception(f"Specify training_regime correctly!")
@@ -467,7 +538,8 @@ def main(args: TrainArgs) -> None:
             
             # Extract first replica and convert to host arrays (removes sharding metadata)
             single_state = jax.device_get(jax.tree.map(lambda x: x[0], state))
-            ckpt_start = time.perf_counter()
+            if args.debug_logging:
+                ckpt_start = time.perf_counter()
             ckpt_manager.save(
                 step=int(single_state.step),
                 args=ocp.args.StandardSave(single_state),

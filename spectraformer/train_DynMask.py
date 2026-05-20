@@ -274,6 +274,15 @@ def train_epoch(
     mask_chunk_max = getattr(configs, "mask_chunk_max", 6)
     default_mask_value = getattr(configs, "default_mask_value", -1)
     wave_number_raw = jnp.asarray(train_ds["wave_number"].values)
+
+    if debug_logging:
+        logger.debug(
+            "train_epoch: epoch={} spectra={} wave_len={} batch_size={}",
+            epoch,
+            train_ds.sizes.get("spectra", "?"),
+            wave_number_raw.shape[0],
+            configs.batch_size,
+        )
     
     ######################################################################################
     if (not dynamic_mask) and configs.random_mask:
@@ -301,6 +310,8 @@ def train_epoch(
         )
     
     
+    if debug_logging:
+        loader_start = time.perf_counter()
     data_loader = batch_sampler(
         train_ds,
         mask_windows,
@@ -310,8 +321,16 @@ def train_epoch(
     )
     metrics = []
     for batch_idx, batch in enumerate(data_loader):
-        batch_start = time.perf_counter()
+        if debug_logging:
+            batch_start = time.perf_counter()
+        if debug_logging and batch_idx == 0:
+            logger.debug(
+                "train_epoch: time_to_first_batch={:.3f}s",
+                batch_start - loader_start,
+            )
         if dynamic_mask:
+            if debug_logging:
+                mask_build_start = time.perf_counter()
             mask_key = jax.random.fold_in(window_RNG_key, batch_idx)
             mask_windows = _build_dynamic_mask_windows(
                 wave_number_raw,
@@ -320,17 +339,28 @@ def train_epoch(
                 min_chunks=mask_chunk_min,
                 max_chunks=mask_chunk_max,
             )
+            if debug_logging:
+                mask_build_time = time.perf_counter() - mask_build_start
+                mask_apply_start = time.perf_counter()
             batch = _apply_mask_to_batch(
                 batch,
                 wave_number_raw,
                 mask_windows,
                 default_mask_value=default_mask_value,
             )
+            if debug_logging:
+                mask_apply_time = time.perf_counter() - mask_apply_start
             if debug_logging and _should_log_batch(batch_idx, debug_log_every_batches):
                 logger.debug(
                     "train_epoch: batch={} {}",
                     batch_idx,
                     _summarize_mask_windows(mask_windows),
+                )
+                logger.debug(
+                    "train_epoch: batch={} mask_build={:.4f}s mask_apply={:.4f}s",
+                    batch_idx,
+                    mask_build_time,
+                    mask_apply_time,
                 )
         if debug_logging: 
             step_start = time.perf_counter()
@@ -374,6 +404,15 @@ def validation_epoch(
     default_mask_value = getattr(configs, "default_mask_value", -1)
     wave_number_raw = jnp.asarray(val_ds["wave_number"].values)
 
+    if debug_logging:
+        logger.debug(
+            "validation_epoch: epoch={} spectra={} wave_len={} batch_size={}",
+            epoch,
+            val_ds.sizes.get("spectra", "?"),
+            wave_number_raw.shape[0],
+            configs.batch_size,
+        )
+
     if dynamic_mask:
         base_key = jax.random.PRNGKey(getattr(configs, "root_rng_seed", 0))
         mask_key = jax.random.fold_in(base_key, epoch)
@@ -397,6 +436,8 @@ def validation_epoch(
             dynamic_mask,
             _summarize_mask_windows(mask_windows),
         )
+    if debug_logging:
+        loader_start = time.perf_counter()
     data_loader = batch_sampler(
         val_ds,
         mask_windows_for_loader,
@@ -406,19 +447,34 @@ def validation_epoch(
     )
     metrics = []
     for batch_idx, batch in enumerate(data_loader):
-        batch_start = time.perf_counter()
+        if debug_logging:
+            batch_start = time.perf_counter()
+        if debug_logging and batch_idx == 0:
+            logger.debug(
+                "validation_epoch: time_to_first_batch={:.3f}s",
+                batch_start - loader_start,
+            )
         if dynamic_mask:
+            if debug_logging:
+                mask_apply_start = time.perf_counter()
             batch = _apply_mask_to_batch(
                 batch,
                 wave_number_raw,
                 mask_windows,
                 default_mask_value=default_mask_value,
             )
+            if debug_logging:
+                mask_apply_time = time.perf_counter() - mask_apply_start
             if debug_logging and _should_log_batch(batch_idx, debug_log_every_batches):
                 logger.debug(
                     "validation_epoch: batch={} {}",
                     batch_idx,
                     _summarize_mask_windows(mask_windows),
+                )
+                logger.debug(
+                    "validation_epoch: batch={} mask_apply={:.4f}s",
+                    batch_idx,
+                    mask_apply_time,
                 )
         if debug_logging: 
             step_start = time.perf_counter()
@@ -785,6 +841,16 @@ def train_epoch_pmap(
     default_mask_value = getattr(configs, "default_mask_value", -1)
     wave_number_raw = jnp.asarray(train_ds["wave_number"].values)
 
+    if debug_logging:
+        logger.debug(
+            "train_epoch_pmap: epoch={} spectra={} wave_len={} batch_size={} devices={}",
+            epoch,
+            train_ds.sizes.get("spectra", "?"),
+            wave_number_raw.shape[0],
+            configs.batch_size,
+            num_devices,
+        )
+
     if (not dynamic_mask) and configs.random_mask:
         random_uniform_key_1 = jax.random.uniform(window_RNG_key, minval=0, maxval=1).item()
         random_uniform_key_2 = jax.random.uniform(window_RNG_key, minval=0.10, maxval=1.00).item()
@@ -807,6 +873,8 @@ def train_epoch_pmap(
             _summarize_mask_windows(mask_windows),
         )
 
+    if debug_logging:
+        loader_start = time.perf_counter()
     data_loader = batch_sampler(
         train_ds,
         mask_windows,
@@ -818,8 +886,16 @@ def train_epoch_pmap(
     metrics_list = []
 
     for batch_idx, batch in enumerate(data_loader):
-        batch_start = time.perf_counter()
+        if debug_logging:
+            batch_start = time.perf_counter()
+        if debug_logging and batch_idx == 0:
+            logger.debug(
+                "train_epoch_pmap: time_to_first_batch={:.3f}s",
+                batch_start - loader_start,
+            )
         if dynamic_mask:
+            if debug_logging:
+                mask_build_start = time.perf_counter()
             mask_key = jax.random.fold_in(window_RNG_key, batch_idx)
             mask_windows = _build_dynamic_mask_windows(
                 wave_number_raw,
@@ -828,25 +904,44 @@ def train_epoch_pmap(
                 min_chunks=mask_chunk_min,
                 max_chunks=mask_chunk_max,
             )
+            if debug_logging:
+                mask_build_time = time.perf_counter() - mask_build_start
+                mask_apply_start = time.perf_counter()
             batch = _apply_mask_to_batch(
                 batch,
                 wave_number_raw,
                 mask_windows,
                 default_mask_value=default_mask_value,
             )
+            if debug_logging:
+                mask_apply_time = time.perf_counter() - mask_apply_start
             if debug_logging and _should_log_batch(batch_idx, debug_log_every_batches):
                 logger.debug(
                     "train_epoch_pmap: batch={} {}",
                     batch_idx,
                     _summarize_mask_windows(mask_windows),
                 )
+                logger.debug(
+                    "train_epoch_pmap: batch={} mask_build={:.4f}s mask_apply={:.4f}s",
+                    batch_idx,
+                    mask_build_time,
+                    mask_apply_time,
+                )
         # 1) Shard the batch so each device gets a sub-batch
+        if debug_logging:
+            shard_start = time.perf_counter()
         batch_sharded = shard_batch(batch)
+        if debug_logging:
+            shard_time = time.perf_counter() - shard_start
         
         # 2) Create a dropout key for each device
+        if debug_logging:
+            dropout_shard_start = time.perf_counter()
         dropout_device_keys = jax.random.split(rng_streams["dropout"], num_devices)
         dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]  # Convert to list
         dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
+        if debug_logging:
+            dropout_shard_time = time.perf_counter() - dropout_shard_start
         
         loss_fn=configs.loss_fn
         # 3) Run pmapped train step
@@ -868,6 +963,12 @@ def train_epoch_pmap(
                 batch_idx,
                 step_time,
                 total_time,
+            )
+            logger.debug(
+                "train_epoch_pmap: batch={} shard={:.4f}s dropout_shard={:.4f}s",
+                batch_idx,
+                shard_time,
+                dropout_shard_time,
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 
@@ -917,6 +1018,16 @@ def validation_epoch_pmap(
     default_mask_value = getattr(configs, "default_mask_value", -1)
     wave_number_raw = jnp.asarray(val_ds["wave_number"].values)
 
+    if debug_logging:
+        logger.debug(
+            "validation_epoch_pmap: epoch={} spectra={} wave_len={} batch_size={} devices={}",
+            epoch,
+            val_ds.sizes.get("spectra", "?"),
+            wave_number_raw.shape[0],
+            configs.batch_size,
+            num_devices,
+        )
+
     if dynamic_mask:
         base_key = jax.random.PRNGKey(getattr(configs, "root_rng_seed", 0))
         mask_key = jax.random.fold_in(base_key, epoch)
@@ -941,6 +1052,8 @@ def validation_epoch_pmap(
             _summarize_mask_windows(mask_windows),
         )
 
+    if debug_logging:
+        loader_start = time.perf_counter()
     data_loader = batch_sampler(
         val_ds,
         mask_windows_for_loader,
@@ -952,27 +1065,50 @@ def validation_epoch_pmap(
     metrics_list = []
 
     for batch_idx, batch in enumerate(data_loader):
-        batch_start = time.perf_counter()
+        if debug_logging:
+            batch_start = time.perf_counter()
+        if debug_logging and batch_idx == 0:
+            logger.debug(
+                "validation_epoch_pmap: time_to_first_batch={:.3f}s",
+                batch_start - loader_start,
+            )
         if dynamic_mask:
+            if debug_logging:
+                mask_apply_start = time.perf_counter()
             batch = _apply_mask_to_batch(
                 batch,
                 wave_number_raw,
                 mask_windows,
                 default_mask_value=default_mask_value,
             )
+            if debug_logging:
+                mask_apply_time = time.perf_counter() - mask_apply_start
             if debug_logging and _should_log_batch(batch_idx, debug_log_every_batches):
                 logger.debug(
                     "validation_epoch_pmap: batch={} {}",
                     batch_idx,
                     _summarize_mask_windows(mask_windows),
                 )
+                logger.debug(
+                    "validation_epoch_pmap: batch={} mask_apply={:.4f}s",
+                    batch_idx,
+                    mask_apply_time,
+                )
         # 1) Shard the batch so each device gets a sub-batch
+        if debug_logging:
+            shard_start = time.perf_counter()
         batch_sharded = shard_batch(batch)
+        if debug_logging:
+            shard_time = time.perf_counter() - shard_start
 
         # 2) Create a dropout key for each device
+        if debug_logging:
+            dropout_shard_start = time.perf_counter()
         dropout_device_keys = jax.random.split(rng_streams["dropout"], num_devices)
         dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]  # Convert to list
         dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
+        if debug_logging:
+            dropout_shard_time = time.perf_counter() - dropout_shard_start
 
         loss_fn=configs.loss_fn
         # 3) Run pmapped train step
@@ -994,6 +1130,12 @@ def validation_epoch_pmap(
                 batch_idx,
                 step_time,
                 total_time,
+            )
+            logger.debug(
+                "validation_epoch_pmap: batch={} shard={:.4f}s dropout_shard={:.4f}s",
+                batch_idx,
+                shard_time,
+                dropout_shard_time,
             )
         # batch_metrics is a PyTree with shape [num_devices, ...] for each metric
 
