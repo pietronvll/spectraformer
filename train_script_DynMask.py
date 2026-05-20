@@ -2,8 +2,30 @@
 SpectraFormer training script.
 
 Usage:
+    1:
+    export CUDA_DIR=/opt/share/libs/intel/nvidia/cuda-12.8.0
+    export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.11/site-packages/nvidia/cusparse/lib:/usr/lib64:/usr/lib
+    export LD_PRELOAD=$VIRTUAL_ENV/lib/python3.11/site-packages/nvidia/cusparse/lib/libcusparse.so.12:$CUDA_DIR/lib64/libnvJitLink.so.12
+    export XLA_FLAGS=--xla_gpu_cuda_data_dir=$CUDA_DIR
+    export XLA_FLAGS="--xla_gpu_compilation_cache_dir=/work/dpoteryayev/.xla_cache --xla_gpu_compilation_cache_capacity_bytes=2147483648"
+    export XLA_FLAGS="$XLA_FLAGS --xla_gpu_autotune_level=1"
+
+    python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f --regime multi-gpu --no-stream-datasets --debug-logging --debug_log_every_batches 1
+
+
+    2:
+    export CUDA_DIR=/opt/share/libs/intel/nvidia/cuda-12.8.0
+    export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib/python3.11/site-packages/nvidia/cusparse/lib:/usr/lib64:/usr/lib
+    export LD_PRELOAD=$VIRTUAL_ENV/lib/python3.11/site-packages/nvidia/cusparse/lib/libcusparse.so.12:$CUDA_DIR/lib64/libnvJitLink.so.12
+    export XLA_FLAGS="--xla_gpu_cuda_data_dir=$CUDA_DIR --xla_gpu_autotune_level=1"
+    export JAX_COMPILATION_CACHE_DIR=/work/dpoteryayev/.xla_cache
+    python train_script_DynMask.py   --model-tag min73_highf   --material SiC-high-f   --regime multi-gpu   --no-stream-datasets   --no-debug-logging   --debug-log-every-batches 1
+
+
+
+
     python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f
-    python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f --regime multi-gpu --stream-datasets False
+    python train_script_DynMask.py --model-tag min72_highf --material SiC-high-f --regime multi-gpu --no-stream-datasets
 """
 
 import gc
@@ -40,7 +62,7 @@ class TrainArgs:
     debug_nans: bool = True
     """Enable JAX NaN debugging (slower but catches numerical issues)"""
 
-    debug_logging: bool = False
+    debug_logging: bool = True
     """Enable verbose debug logging"""
 
     debug_log_every_batches: int = 1
@@ -317,6 +339,7 @@ def main(args: TrainArgs) -> None:
     state = jax.device_put(state, sharding)
 
     for epoch in range(restored_epoch + 1, restored_epoch + configs.num_epochs + 1):
+        epoch_start = time.perf_counter()
         window_RNG_key = jax.random.split(window_RNG_key, num=1)[0]
 
         epoch_train_metrics = []
@@ -458,9 +481,11 @@ def main(args: TrainArgs) -> None:
         early_stop = early_stop.update(val_metrics[-1]["val_loss_step"])
         best_metric_value = min(metric["val_loss_step"] for metric in val_metrics)
         metrics_diff = val_metrics[-1]["val_loss_step"] - best_metric_value
+        total_epoch_time = time.perf_counter() - epoch_start
         if is_early_stop:
             logger.info(
                 f"Epoch {epoch} | "
+                f"Time: {total_epoch_time:.2f}s | "
                 f"train_loss={train_metrics[-1]['train_loss_step']:.4e} | "
                 f"val_loss={val_metrics[-1]['val_loss_step']:.4e} | "
                 f"patience={early_stop.patience_count}/{patience}"
@@ -468,6 +493,7 @@ def main(args: TrainArgs) -> None:
         else:
             logger.info(
                 f"Epoch {epoch} | "
+                f"Time: {total_epoch_time:.2f}s | "
                 f"train_loss={train_metrics[-1]['train_loss_step']:.4e} | "
                 f"val_loss={val_metrics[-1]['val_loss_step']:.4e}"
             )
