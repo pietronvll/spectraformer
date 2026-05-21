@@ -121,6 +121,7 @@ def main(args: TrainArgs) -> None:
         log_gpu_usage,
         warmup_compile_single,
         warmup_compile_pmap,
+        warmup_lower_compile_pmap,
         _apply_mask_to_batch,
         _build_dynamic_mask_windows_np,
     )
@@ -529,6 +530,18 @@ def main(args: TrainArgs) -> None:
         )
         logger.debug("Warmup compile dataset={}", warmup_dataset_name)
     if training_regime == "All devices":
+        if args.debug_logging:
+            logger.debug("Warmup lower+compile start")
+        warmup_lower_compile_pmap(
+            state,
+            warmup_train_batch,
+            rng_streams,
+            mean_streams,
+            num_devices,
+            configs.loss_fn,
+        )
+        if args.debug_logging:
+            logger.debug("Warmup lower+compile completed")
         warmup_compile_pmap(
             state,
             warmup_train_batch,

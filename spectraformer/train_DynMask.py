@@ -251,6 +251,47 @@ def warmup_compile_pmap(
             jax.block_until_ready(val_metrics)
 
 
+def warmup_lower_compile_pmap(
+    state,
+    batch: Batch,
+    rng_streams,
+    mean_streams,
+    num_devices: int,
+    loss_fn: str,
+):
+    match mean_streams["mean"]:
+        case "Arithmetic":
+            train_step_pmap = train_step_pmap_arithmetic
+            validation_step_pmap = validation_step_pmap_arithmetic
+        case "Geometric":
+            train_step_pmap = train_step_pmap_geometric
+            validation_step_pmap = validation_step_pmap_geometric
+        case _:
+            raise ValueError("Mean is incorrect.")
+
+    devices = jax.devices()
+    batch_sharded = shard_batch(batch)
+    dropout_device_keys = jax.random.split(rng_streams["dropout"], num_devices)
+    dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]
+    dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
+
+    train_step_pmap.lower(
+        state,
+        batch_sharded,
+        dropout_sharded,
+        num_devices,
+        loss_fn,
+    ).compile()
+
+    validation_step_pmap.lower(
+        state,
+        batch_sharded,
+        dropout_sharded,
+        num_devices,
+        loss_fn,
+    ).compile()
+
+
 def log_gpu_usage(gpustat_entry, step, writer):
     name = f"[{gpustat_entry['name']}/{gpustat_entry['index']}"
 
