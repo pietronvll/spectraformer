@@ -1,7 +1,7 @@
 import gpustat
 import jax
 import jax.numpy as jnp
-# import numpy as np
+import numpy as np
 import time
 from jax import lax
 from flax.training.common_utils import stack_forest
@@ -81,6 +81,45 @@ def _build_dynamic_mask_windows(
     return windows
 
 
+def _build_dynamic_mask_windows_np(
+    wave_number,
+    rng: np.random.Generator,
+    chunk_size: float,
+    min_chunks: int,
+    max_chunks: int,
+):
+    wave_min = float(wave_number[0])
+    wave_max = float(wave_number[-1])
+    span = wave_max - wave_min
+    if span <= chunk_size:
+        return []
+
+    max_chunks_possible = int(span // chunk_size)
+    if max_chunks_possible < 1:
+        return []
+
+    min_chunks = max(1, min(min_chunks, max_chunks_possible))
+    max_chunks = max(1, min(max_chunks, max_chunks_possible))
+
+    num_chunks = int(rng.integers(min_chunks, max_chunks + 1))
+    max_start = wave_max - chunk_size
+
+    windows = []
+    attempts = 0
+    max_attempts = num_chunks * 50
+
+    while len(windows) < num_chunks and attempts < max_attempts:
+        start = float(rng.uniform(wave_min, max_start))
+        end = start + chunk_size
+        overlap = any((start < w_end) and (end > w_start) for w_start, w_end in windows)
+        if not overlap:
+            windows.append((start, end))
+        attempts += 1
+
+    windows.sort(key=lambda w: w[0])
+    return windows
+
+
 def _apply_mask_to_batch(
     batch: Batch,
     wave_number_raw,
@@ -134,6 +173,55 @@ def _log_batch_summary(batch, batch_idx: int, prefix: str) -> None:
     if mask is not None:
         mask_mean = float(jnp.mean(mask))
         logger.debug("{}: batch={} mask_true_fraction={:.4f}", prefix, batch_idx, mask_mean)
+
+
+def warmup_compile_single(state, batch: Batch, rng_streams, mean_streams):
+    _, train_metrics = train_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
+    _, val_metrics = validation_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
+    jax.block_until_ready(train_metrics)
+    jax.block_until_ready(val_metrics)
+
+
+def warmup_compile_pmap(
+    state,
+    batch: Batch,
+    rng_streams,
+    mean_streams,
+    num_devices: int,
+    loss_fn: str,
+):
+    match mean_streams["mean"]:
+        case "Arithmetic":
+            train_step_pmap = train_step_pmap_arithmetic
+            validation_step_pmap = validation_step_pmap_arithmetic
+        case "Geometric":
+            train_step_pmap = train_step_pmap_geometric
+            validation_step_pmap = validation_step_pmap_geometric
+        case _:
+            raise ValueError("Mean is incorrect.")
+
+    devices = jax.devices()
+    batch_sharded = shard_batch(batch)
+    dropout_device_keys = jax.random.split(rng_streams["dropout"], num_devices)
+    dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]
+    dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
+
+    _, train_metrics = train_step_pmap(
+        state,
+        batch_sharded,
+        dropout_sharded,
+        num_devices,
+        loss_fn,
+    )
+    _, val_metrics = validation_step_pmap(
+        state,
+        batch_sharded,
+        dropout_sharded,
+        num_devices,
+        loss_fn,
+    )
+    jax.block_until_ready(train_metrics)
+    jax.block_until_ready(val_metrics)
 
 
 def log_gpu_usage(gpustat_entry, step, writer):
@@ -352,10 +440,11 @@ def train_epoch(
         if dynamic_mask:
             if debug_logging:
                 mask_build_start = time.perf_counter()
-            mask_key = jax.random.fold_in(window_RNG_key, batch_idx)
-            mask_windows = _build_dynamic_mask_windows(
+            mask_seed = int(jax.random.fold_in(window_RNG_key, batch_idx)[0])
+            mask_rng = np.random.default_rng(mask_seed)
+            mask_windows = _build_dynamic_mask_windows_np(
                 wave_number_raw,
-                mask_key,
+                mask_rng,
                 chunk_size=mask_chunk_size,
                 min_chunks=mask_chunk_min,
                 max_chunks=mask_chunk_max,
@@ -442,10 +531,11 @@ def validation_epoch(
 
     if dynamic_mask:
         base_key = jax.random.PRNGKey(getattr(configs, "root_rng_seed", 0))
-        mask_key = jax.random.fold_in(base_key, epoch)
-        mask_windows = _build_dynamic_mask_windows(
+        mask_seed = int(jax.random.fold_in(base_key, epoch)[0])
+        mask_rng = np.random.default_rng(mask_seed)
+        mask_windows = _build_dynamic_mask_windows_np(
             wave_number_raw,
-            mask_key,
+            mask_rng,
             chunk_size=mask_chunk_size,
             min_chunks=mask_chunk_min,
             max_chunks=mask_chunk_max,
@@ -931,10 +1021,11 @@ def train_epoch_pmap(
         if dynamic_mask:
             if debug_logging:
                 mask_build_start = time.perf_counter()
-            mask_key = jax.random.fold_in(window_RNG_key, batch_idx)
-            mask_windows = _build_dynamic_mask_windows(
+            mask_seed = int(jax.random.fold_in(window_RNG_key, batch_idx)[0])
+            mask_rng = np.random.default_rng(mask_seed)
+            mask_windows = _build_dynamic_mask_windows_np(
                 wave_number_raw,
-                mask_key,
+                mask_rng,
                 chunk_size=mask_chunk_size,
                 min_chunks=mask_chunk_min,
                 max_chunks=mask_chunk_max,
@@ -1071,10 +1162,11 @@ def validation_epoch_pmap(
 
     if dynamic_mask:
         base_key = jax.random.PRNGKey(getattr(configs, "root_rng_seed", 0))
-        mask_key = jax.random.fold_in(base_key, epoch)
-        mask_windows = _build_dynamic_mask_windows(
+        mask_seed = int(jax.random.fold_in(base_key, epoch)[0])
+        mask_rng = np.random.default_rng(mask_seed)
+        mask_windows = _build_dynamic_mask_windows_np(
             wave_number_raw,
-            mask_key,
+            mask_rng,
             chunk_size=mask_chunk_size,
             min_chunks=mask_chunk_min,
             max_chunks=mask_chunk_max,

@@ -100,7 +100,9 @@ def main(args: TrainArgs) -> None:
     from spectraformer.train_DynMask import (
         train_epoch, validation_epoch,
         train_epoch_pmap, validation_epoch_pmap,
-        log_gpu_usage
+        log_gpu_usage,
+        warmup_compile_single,
+        warmup_compile_pmap,
     )
     from spectraformer.inference import plot_results_train, predict, plot_loss
 
@@ -115,6 +117,14 @@ def main(args: TrainArgs) -> None:
             os.environ.get("JAX_COMPILATION_CACHE_DIR", ""),
             os.environ.get("XLA_FLAGS", ""),
         )
+        cache_dir = os.environ.get("JAX_COMPILATION_CACHE_DIR", "")
+        if cache_dir:
+            logger.debug(
+                "Cache dir exists={} writable={} path={}",
+                os.path.isdir(cache_dir),
+                os.access(cache_dir, os.W_OK),
+                cache_dir,
+            )
 
     @jax.pmap
     def update_epoch(state):
@@ -377,6 +387,37 @@ def main(args: TrainArgs) -> None:
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('i'))
     state = jax.tree.map(lambda x: jnp.stack([x] * num_devices), state)
     state = jax.device_put(state, sharding)
+
+    def _build_warmup_batch(example, batch_size: int):
+        spectra = jnp.repeat(example["spectra"], repeats=batch_size, axis=0)
+        masked_spectra = jnp.repeat(example["masked_spectra"], repeats=batch_size, axis=0)
+        return {
+            "spectra": spectra,
+            "masked_spectra": masked_spectra,
+            "wave_number": example["wave_number"],
+            "mask": example["mask"],
+        }
+
+    warmup_batch = _build_warmup_batch(dummy_example, configs.batch_size)
+    if args.debug_logging:
+        logger.debug(
+            "Warmup compile start: regime={} batch_size={}",
+            training_regime,
+            configs.batch_size,
+        )
+    if training_regime == "All devices":
+        warmup_compile_pmap(
+            state,
+            warmup_batch,
+            rng_streams,
+            mean_streams,
+            num_devices,
+            configs.loss_fn,
+        )
+    else:
+        warmup_compile_single(state, warmup_batch, rng_streams, mean_streams)
+    if args.debug_logging:
+        logger.debug("Warmup compile completed")
 
     for epoch in range(restored_epoch + 1, restored_epoch + configs.num_epochs + 1):
         epoch_start = time.perf_counter()
