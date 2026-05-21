@@ -29,6 +29,7 @@ Usage:
 """
 
 import gc
+import logging
 import os
 import sys
 import time
@@ -78,6 +79,14 @@ class TrainArgs:
 
 def main(args: TrainArgs) -> None:
     """Run training with the given arguments."""
+    class _InterceptHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            try:
+                level = logger.level(record.levelname).name
+            except ValueError:
+                level = record.levelno
+            logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())
+
     if args.debug_compile_logging:
         os.environ.setdefault("JAX_LOG_COMPILES", "1")
     logger.remove()
@@ -89,6 +98,10 @@ def main(args: TrainArgs) -> None:
     )
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     logger.add(f"temp/{args.model_tag}_{timestamp}.log")
+    if args.debug_compile_logging:
+        logging.basicConfig(handlers=[_InterceptHandler()], level=logging.WARNING, force=True)
+        logging.getLogger("jax").setLevel(logging.WARNING)
+        logging.getLogger("jaxlib").setLevel(logging.WARNING)
     import gpustat
     import jax
     import jax.numpy as jnp
