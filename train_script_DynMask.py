@@ -19,7 +19,7 @@ Usage:
     export LD_PRELOAD=$VIRTUAL_ENV/lib/python3.11/site-packages/nvidia/cusparse/lib/libcusparse.so.12:$CUDA_DIR/lib64/libnvJitLink.so.12
     export XLA_FLAGS="--xla_gpu_cuda_data_dir=$CUDA_DIR --xla_gpu_autotune_level=1"
     export JAX_COMPILATION_CACHE_DIR=/work/dpoteryayev/.xla_cache
-    python train_script_DynMask.py   --model-tag min73_highf   --material SiC-high-f   --regime multi-gpu   --no-stream-datasets   --no-debug-logging   --debug-log-every-batches 1
+    python train_script_DynMask.py   --model-tag min73_highf   --material SiC-high-f   --regime multi-gpu   --no-stream-datasets   --debug-logging   --debug-log-every-batches 1
 
 
 
@@ -29,6 +29,7 @@ Usage:
 """
 
 import gc
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -81,6 +82,8 @@ def main(args: TrainArgs) -> None:
         format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
         level=log_level,
     )
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    logger.add(f"temp/{args.model_tag}_{timestamp}.log")
     import gpustat
     import jax
     import jax.numpy as jnp
@@ -106,6 +109,12 @@ def main(args: TrainArgs) -> None:
     devices = jax.devices()
     num_devices = len(devices)
     logger.info(f"JAX devices: {devices} ({num_devices} total)")
+    if args.debug_logging:
+        logger.debug(
+            "Env: JAX_COMPILATION_CACHE_DIR={} XLA_FLAGS={}",
+            os.environ.get("JAX_COMPILATION_CACHE_DIR", ""),
+            os.environ.get("XLA_FLAGS", ""),
+        )
 
     @jax.pmap
     def update_epoch(state):
@@ -396,6 +405,13 @@ def main(args: TrainArgs) -> None:
                         nc_file.name,
                         time.perf_counter() - load_start,
                     )
+                    logger.debug(
+                        "Dataset {} wave_len={} train_steps={} val_steps={}",
+                        nc_file.name,
+                        train_ds["wave_number"].shape[0],
+                        -(-train_ds.sizes["spectra"] // configs.batch_size),
+                        -(-val_ds.sizes["spectra"] // configs.batch_size),
+                    )
                 if train_ds.sizes['spectra'] < configs.batch_size or val_ds.sizes['spectra'] < configs.batch_size:
                     logger.warning(
                         f"Skipping {nc_file.name}: insufficient spectra for batch size {configs.batch_size}"
@@ -408,6 +424,14 @@ def main(args: TrainArgs) -> None:
                 logger.debug(
                     f"Dataset {dataset_name} (filter={use_filter}): train={train_ds.shape[1]}, val={val_ds.shape[1]}"
                 )
+                if args.debug_logging:
+                    logger.debug(
+                        "Dataset {} wave_len={} train_steps={} val_steps={}",
+                        dataset_name,
+                        train_ds["wave_number"].shape[0],
+                        -(-train_ds.sizes["spectra"] // configs.batch_size),
+                        -(-val_ds.sizes["spectra"] // configs.batch_size),
+                    )
             
             match training_regime:
                 case "One device":

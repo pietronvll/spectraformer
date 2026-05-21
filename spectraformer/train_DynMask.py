@@ -116,6 +116,26 @@ def _should_log_batch(batch_idx: int, log_every_batches: int) -> bool:
     return log_every_batches > 0 and batch_idx % log_every_batches == 0
 
 
+def _log_batch_summary(batch, batch_idx: int, prefix: str) -> None:
+    spectra = batch["spectra"]
+    masked = batch.get("masked_spectra", None)
+    wave = batch.get("wave_number", None)
+    mask = batch.get("mask", None)
+    logger.debug(
+        "{}: batch={} spectra_shape={} dtype={} masked_shape={} wave_shape={} mask_shape={}",
+        prefix,
+        batch_idx,
+        getattr(spectra, "shape", "?"),
+        getattr(spectra, "dtype", "?"),
+        getattr(masked, "shape", "?"),
+        getattr(wave, "shape", "?"),
+        getattr(mask, "shape", "?"),
+    )
+    if mask is not None:
+        mask_mean = float(jnp.mean(mask))
+        logger.debug("{}: batch={} mask_true_fraction={:.4f}", prefix, batch_idx, mask_mean)
+
+
 def log_gpu_usage(gpustat_entry, step, writer):
     name = f"[{gpustat_entry['name']}/{gpustat_entry['index']}"
 
@@ -328,6 +348,7 @@ def train_epoch(
                 "train_epoch: time_to_first_batch={:.3f}s",
                 batch_start - loader_start,
             )
+            _log_batch_summary(batch, batch_idx, "train_epoch")
         if dynamic_mask:
             if debug_logging:
                 mask_build_start = time.perf_counter()
@@ -375,6 +396,12 @@ def train_epoch(
                 step_time,
                 total_time,
             )
+            if step_time > 1.0:
+                logger.debug(
+                    "train_epoch: batch={} slow_step_warning step_time={:.3f}s",
+                    batch_idx,
+                    step_time,
+                )
         metrics.append(batch_metrics)
 
     metrics = stack_forest(metrics)
@@ -454,6 +481,7 @@ def validation_epoch(
                 "validation_epoch: time_to_first_batch={:.3f}s",
                 batch_start - loader_start,
             )
+            _log_batch_summary(batch, batch_idx, "validation_epoch")
         if dynamic_mask:
             if debug_logging:
                 mask_apply_start = time.perf_counter()
@@ -489,6 +517,12 @@ def validation_epoch(
                 step_time,
                 total_time,
             )
+            if step_time > 1.0:
+                logger.debug(
+                    "validation_epoch: batch={} slow_step_warning step_time={:.3f}s",
+                    batch_idx,
+                    step_time,
+                )
         metrics.append(batch_metrics)
 
     metrics = stack_forest(metrics)
@@ -893,6 +927,7 @@ def train_epoch_pmap(
                 "train_epoch_pmap: time_to_first_batch={:.3f}s",
                 batch_start - loader_start,
             )
+            _log_batch_summary(batch, batch_idx, "train_epoch_pmap")
         if dynamic_mask:
             if debug_logging:
                 mask_build_start = time.perf_counter()
@@ -964,6 +999,12 @@ def train_epoch_pmap(
                 step_time,
                 total_time,
             )
+            if step_time > 1.0:
+                logger.debug(
+                    "train_epoch_pmap: batch={} slow_step_warning step_time={:.3f}s",
+                    batch_idx,
+                    step_time,
+                )
             logger.debug(
                 "train_epoch_pmap: batch={} shard={:.4f}s dropout_shard={:.4f}s",
                 batch_idx,
@@ -1072,6 +1113,7 @@ def validation_epoch_pmap(
                 "validation_epoch_pmap: time_to_first_batch={:.3f}s",
                 batch_start - loader_start,
             )
+            _log_batch_summary(batch, batch_idx, "validation_epoch_pmap")
         if dynamic_mask:
             if debug_logging:
                 mask_apply_start = time.perf_counter()
@@ -1131,6 +1173,12 @@ def validation_epoch_pmap(
                 step_time,
                 total_time,
             )
+            if step_time > 1.0:
+                logger.debug(
+                    "validation_epoch_pmap: batch={} slow_step_warning step_time={:.3f}s",
+                    batch_idx,
+                    step_time,
+                )
             logger.debug(
                 "validation_epoch_pmap: batch={} shard={:.4f}s dropout_shard={:.4f}s",
                 batch_idx,
