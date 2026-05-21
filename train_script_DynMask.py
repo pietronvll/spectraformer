@@ -66,6 +66,9 @@ class TrainArgs:
     debug_logging: bool = True
     """Enable verbose debug logging"""
 
+    debug_compile_logging: bool = False
+    """Enable JAX compile logging (short debug runs only)"""
+
     debug_log_every_batches: int = 1
     """Log every N batches when debug logging is enabled"""
 
@@ -75,6 +78,8 @@ class TrainArgs:
 
 def main(args: TrainArgs) -> None:
     """Run training with the given arguments."""
+    if args.debug_compile_logging:
+        os.environ.setdefault("JAX_LOG_COMPILES", "1")
     logger.remove()
     log_level = "DEBUG" if args.debug_logging else "INFO"
     logger.add(
@@ -117,6 +122,11 @@ def main(args: TrainArgs) -> None:
             os.environ.get("JAX_COMPILATION_CACHE_DIR", ""),
             os.environ.get("XLA_FLAGS", ""),
         )
+        if args.debug_compile_logging:
+            logger.debug(
+                "Env: JAX_LOG_COMPILES={}",
+                os.environ.get("JAX_LOG_COMPILES", ""),
+            )
         cache_dir = os.environ.get("JAX_COMPILATION_CACHE_DIR", "")
         if cache_dir:
             logger.debug(
@@ -399,11 +409,13 @@ def main(args: TrainArgs) -> None:
         }
 
     warmup_batch = _build_warmup_batch(dummy_example, configs.batch_size)
+    warmup_steps = 2
     if args.debug_logging:
         logger.debug(
-            "Warmup compile start: regime={} batch_size={}",
+            "Warmup compile start: regime={} batch_size={} steps={}",
             training_regime,
             configs.batch_size,
+            warmup_steps,
         )
     if training_regime == "All devices":
         warmup_compile_pmap(
@@ -413,9 +425,40 @@ def main(args: TrainArgs) -> None:
             mean_streams,
             num_devices,
             configs.loss_fn,
+            steps=warmup_steps,
+            run_train=True,
+            run_val=False,
+        )
+        warmup_compile_pmap(
+            state,
+            warmup_batch,
+            rng_streams,
+            mean_streams,
+            num_devices,
+            configs.loss_fn,
+            steps=1,
+            run_train=False,
+            run_val=True,
         )
     else:
-        warmup_compile_single(state, warmup_batch, rng_streams, mean_streams)
+        warmup_compile_single(
+            state,
+            warmup_batch,
+            rng_streams,
+            mean_streams,
+            steps=warmup_steps,
+            run_train=True,
+            run_val=False,
+        )
+        warmup_compile_single(
+            state,
+            warmup_batch,
+            rng_streams,
+            mean_streams,
+            steps=1,
+            run_train=False,
+            run_val=True,
+        )
     if args.debug_logging:
         logger.debug("Warmup compile completed")
 

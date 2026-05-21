@@ -175,11 +175,32 @@ def _log_batch_summary(batch, batch_idx: int, prefix: str) -> None:
         logger.debug("{}: batch={} mask_true_fraction={:.4f}", prefix, batch_idx, mask_mean)
 
 
-def warmup_compile_single(state, batch: Batch, rng_streams, mean_streams):
-    _, train_metrics = train_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
-    _, val_metrics = validation_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
-    jax.block_until_ready(train_metrics)
-    jax.block_until_ready(val_metrics)
+def warmup_compile_single(
+    state,
+    batch: Batch,
+    rng_streams,
+    mean_streams,
+    steps: int = 1,
+    run_train: bool = True,
+    run_val: bool = True,
+):
+    for _ in range(max(1, steps)):
+        if run_train:
+            _, train_metrics = train_step(
+                state,
+                batch,
+                rng_streams["dropout"],
+                mean_streams["mean"],
+            )
+            jax.block_until_ready(train_metrics)
+        if run_val:
+            _, val_metrics = validation_step(
+                state,
+                batch,
+                rng_streams["dropout"],
+                mean_streams["mean"],
+            )
+            jax.block_until_ready(val_metrics)
 
 
 def warmup_compile_pmap(
@@ -189,6 +210,9 @@ def warmup_compile_pmap(
     mean_streams,
     num_devices: int,
     loss_fn: str,
+    steps: int = 1,
+    run_train: bool = True,
+    run_val: bool = True,
 ):
     match mean_streams["mean"]:
         case "Arithmetic":
@@ -206,22 +230,25 @@ def warmup_compile_pmap(
     dropout_device_keys = [dropout_device_keys[i] for i in range(num_devices)]
     dropout_sharded = jax.device_put_sharded(dropout_device_keys, devices)
 
-    _, train_metrics = train_step_pmap(
-        state,
-        batch_sharded,
-        dropout_sharded,
-        num_devices,
-        loss_fn,
-    )
-    _, val_metrics = validation_step_pmap(
-        state,
-        batch_sharded,
-        dropout_sharded,
-        num_devices,
-        loss_fn,
-    )
-    jax.block_until_ready(train_metrics)
-    jax.block_until_ready(val_metrics)
+    for _ in range(max(1, steps)):
+        if run_train:
+            _, train_metrics = train_step_pmap(
+                state,
+                batch_sharded,
+                dropout_sharded,
+                num_devices,
+                loss_fn,
+            )
+            jax.block_until_ready(train_metrics)
+        if run_val:
+            _, val_metrics = validation_step_pmap(
+                state,
+                batch_sharded,
+                dropout_sharded,
+                num_devices,
+                loss_fn,
+            )
+            jax.block_until_ready(val_metrics)
 
 
 def log_gpu_usage(gpustat_entry, step, writer):
