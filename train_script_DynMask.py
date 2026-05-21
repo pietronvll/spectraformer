@@ -121,6 +121,8 @@ def main(args: TrainArgs) -> None:
         log_gpu_usage,
         warmup_compile_single,
         warmup_compile_pmap,
+        _apply_mask_to_batch,
+        _build_dynamic_mask_windows_np,
     )
     from spectraformer.inference import plot_results_train, predict, plot_loss
 
@@ -421,7 +423,102 @@ def main(args: TrainArgs) -> None:
             "mask": example["mask"],
         }
 
-    warmup_batch = _build_warmup_batch(dummy_example, configs.batch_size)
+    def _apply_dynamic_mask_for_train(batch, wave_number_raw, rng_key, batch_idx: int):
+        if not getattr(configs, "dynamic_mask", False):
+            return batch
+        mask_seed = int(jax.random.fold_in(rng_key, batch_idx)[0])
+        mask_rng = np.random.default_rng(mask_seed)
+        mask_windows = _build_dynamic_mask_windows_np(
+            wave_number_raw,
+            mask_rng,
+            chunk_size=getattr(configs, "mask_chunk_size", 200),
+            min_chunks=getattr(configs, "mask_chunk_min", 2),
+            max_chunks=getattr(configs, "mask_chunk_max", 6),
+        )
+        return _apply_mask_to_batch(
+            batch,
+            wave_number_raw,
+            mask_windows,
+            default_mask_value=getattr(configs, "default_mask_value", -1),
+        )
+
+    def _apply_dynamic_mask_for_val(batch, wave_number_raw, epoch_idx: int):
+        if not getattr(configs, "dynamic_mask", False):
+            return batch
+        base_key = jax.random.PRNGKey(getattr(configs, "root_rng_seed", 0))
+        mask_seed = int(jax.random.fold_in(base_key, epoch_idx)[0])
+        mask_rng = np.random.default_rng(mask_seed)
+        mask_windows = _build_dynamic_mask_windows_np(
+            wave_number_raw,
+            mask_rng,
+            chunk_size=getattr(configs, "mask_chunk_size", 200),
+            min_chunks=getattr(configs, "mask_chunk_min", 2),
+            max_chunks=getattr(configs, "mask_chunk_max", 6),
+        )
+        return _apply_mask_to_batch(
+            batch,
+            wave_number_raw,
+            mask_windows,
+            default_mask_value=getattr(configs, "default_mask_value", -1),
+        )
+
+    warmup_epoch = int(restored_epoch) + 1
+    mask_windows_for_loader = [] if getattr(configs, "dynamic_mask", False) else list(
+        zip(configs.masked_interval_starts, configs.masked_interval_ends)
+    )
+    if stream_datasets:
+        warmup_nc_file, warmup_filter = dataset_specs[0]
+        warmup_train_ds, warmup_val_ds = load_dataset_for_file(
+            warmup_nc_file,
+            warmup_filter,
+        )
+        warmup_dataset_name = warmup_nc_file.name
+    else:
+        warmup_train_ds, warmup_val_ds, warmup_dataset_name, _ = datasets[0]
+
+    warmup_train_batch = next(
+        batch_sampler(
+            warmup_train_ds,
+            mask_windows_for_loader,
+            batch_size=configs.batch_size,
+            rng_seed=warmup_epoch,
+            shuffle=True,
+        )
+    )
+    warmup_val_batch = next(
+        batch_sampler(
+            warmup_val_ds,
+            mask_windows_for_loader,
+            batch_size=configs.batch_size,
+            rng_seed=warmup_epoch,
+            shuffle=True,
+        )
+    )
+
+    warmup_train_batch = _apply_dynamic_mask_for_train(
+        warmup_train_batch,
+        jnp.asarray(warmup_train_ds["wave_number"].values),
+        window_RNG_key,
+        batch_idx=0,
+    )
+    warmup_val_batch = _apply_dynamic_mask_for_val(
+        warmup_val_batch,
+        jnp.asarray(warmup_val_ds["wave_number"].values),
+        warmup_epoch,
+    )
+
+    if args.debug_logging:
+        logger.debug(
+            "Warmup batch shapes train_spectra={} val_spectra={} wave={} mask={}",
+            getattr(warmup_train_batch["spectra"], "shape", "?"),
+            getattr(warmup_val_batch["spectra"], "shape", "?"),
+            getattr(warmup_train_batch["wave_number"], "shape", "?"),
+            getattr(warmup_train_batch["mask"], "shape", "?"),
+        )
+
+    if stream_datasets:
+        del warmup_train_ds, warmup_val_ds
+        gc.collect()
     warmup_steps = 2
     if args.debug_logging:
         logger.debug(
@@ -430,10 +527,11 @@ def main(args: TrainArgs) -> None:
             configs.batch_size,
             warmup_steps,
         )
+        logger.debug("Warmup compile dataset={}", warmup_dataset_name)
     if training_regime == "All devices":
         warmup_compile_pmap(
             state,
-            warmup_batch,
+            warmup_train_batch,
             rng_streams,
             mean_streams,
             num_devices,
@@ -444,7 +542,7 @@ def main(args: TrainArgs) -> None:
         )
         warmup_compile_pmap(
             state,
-            warmup_batch,
+            warmup_val_batch,
             rng_streams,
             mean_streams,
             num_devices,
@@ -456,7 +554,7 @@ def main(args: TrainArgs) -> None:
     else:
         warmup_compile_single(
             state,
-            warmup_batch,
+            warmup_train_batch,
             rng_streams,
             mean_streams,
             steps=warmup_steps,
@@ -465,7 +563,7 @@ def main(args: TrainArgs) -> None:
         )
         warmup_compile_single(
             state,
-            warmup_batch,
+            warmup_val_batch,
             rng_streams,
             mean_streams,
             steps=1,
