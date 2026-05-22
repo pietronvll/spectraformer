@@ -179,10 +179,11 @@ def preprocess_dataset(
             preprocessed_dataset = proper_norm_fn(
                 preprocessed_dataset
             )
-            # 4. Shifting - to avoid large negative log values in loss calculation
-            preprocessed_dataset = shifting_fn(
-                preprocessed_dataset, shift=0.4
-            )
+            # Commented-out to check the statistics violation
+            # # 4. Shifting - to avoid large negative log values in loss calculation
+            # preprocessed_dataset = shifting_fn(
+            #     preprocessed_dataset, shift=0.4
+            # )
             # 5. mimic - performs the same dropping mechanism as before
             preprocessed_dataset = mimic_outlier_removal_fn(
                 preprocessed_dataset
@@ -200,10 +201,11 @@ def preprocess_dataset(
             preprocessed_dataset = proper_norm_fn(
                 preprocessed_dataset
             )
-            # 4. Shifting - to avoid large negative log values in loss calculation
-            preprocessed_dataset = shifting_fn(
-                preprocessed_dataset, shift=0.4
-            )
+            # Commented-out to check the statistics violation
+            # # 4. Shifting - to avoid large negative log values in loss calculation
+            # preprocessed_dataset = shifting_fn(
+            #     preprocessed_dataset, shift=0.4
+            # )
     return preprocessed_dataset
 
 

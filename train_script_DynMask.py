@@ -751,7 +751,14 @@ def main(args: TrainArgs) -> None:
             fig_res, ax_res = plot_results_train(dummy_prediction, state.step[0], state.epoch[0], args.model_tag)
             metric_writer.add_figure('model_predictions', fig_res, global_step=state.epoch[0])
 
-            fig_loss, ax_loss = plot_loss(dummy_wave_number, loss, state.step[0], state.epoch[0], args.model_tag)
+            fig_loss, ax_loss = plot_loss(
+                dummy_wave_number,
+                loss,
+                state.step[0],
+                state.epoch[0],
+                args.model_tag,
+                mask=dummy_example["mask"],
+            )
             metric_writer.add_figure('model_prediction_losses', fig_loss, global_step=state.epoch[0])
             
             metric_writer.add_scalar("train/train_loss_epoch",          train_metrics[-1]["train_loss_step"],   state.epoch[0])

@@ -38,6 +38,49 @@ def my_geometric_mean(loss, eps=1e-8):
     return jnp.exp(mean_log)
 
 
+def _hidden_region_mask(mask):
+    """Convert a visible-token mask into a broadcastable hidden-region mask."""
+    hidden_mask = jnp.logical_not(mask)
+    if hidden_mask.ndim == 1:
+        hidden_mask = hidden_mask[None, :, None]
+    elif hidden_mask.ndim == 2:
+        hidden_mask = hidden_mask[:, :, None]
+    else:
+        hidden_mask = jnp.expand_dims(hidden_mask, axis=-1)
+    return hidden_mask
+
+
+def _masked_gamma_loss(target, pred, mask, reduction: str, eps: float = 1e-8):
+    """Gamma deviance computed only on hidden positions."""
+    target = jnp.clip(target, eps, None)
+    pred = jnp.clip(pred, eps, None)
+    ratio = target / pred
+    loss_array = (ratio - 1.0) - jnp.log(ratio)
+
+    hidden_mask = _hidden_region_mask(mask).astype(loss_array.dtype)
+    masked_loss_array = loss_array * hidden_mask
+    masked_count = jnp.maximum(jnp.sum(hidden_mask), 1.0)
+
+    match reduction:
+        case 'Arithmetic':
+            return jnp.sum(masked_loss_array) / masked_count
+        case 'Geometric':
+            return jnp.exp(
+                jnp.sum(jnp.log(jnp.clip(loss_array, eps)) * hidden_mask) / masked_count
+            )
+        case _:
+            raise Exception(f"You didn't specify a mean to be used!")
+
+
+def _masked_mse_loss(target, pred, mask):
+    """Mean squared error computed only on hidden positions."""
+    hidden_mask = _hidden_region_mask(mask).astype(pred.dtype)
+    squared_error = (pred - target) ** 2
+    masked_squared_error = squared_error * hidden_mask
+    masked_count = jnp.maximum(jnp.sum(hidden_mask), 1.0)
+    return jnp.sum(masked_squared_error) / masked_count
+
+
 def _build_dynamic_mask_windows(
     wave_number,
     rng_key,
@@ -357,16 +400,13 @@ def train_step(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        match configs_mean:
-            case 'Arithmetic':
-                loss = loss_array.mean()
-            case 'Geometric':
-                loss = my_geometric_mean(loss_array)
-            case _:
-                raise Exception(f"You didn't specify a mean to be used!")
+
+        loss = _masked_gamma_loss(
+            batch["spectra"],
+            pred_spectra,
+            batch["mask"],
+            reduction=configs_mean,
+        )
         
         return loss
     
@@ -417,18 +457,16 @@ def validation_step(
     nan_inf_check(pred_spectra)
     
     def val_corrected_gamma_fn(params):
-        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        match configs_mean:
-            case 'Arithmetic':
-                loss = loss_array.mean()
-            case 'Geometric':
-                loss = my_geometric_mean(loss_array)
-            case _:
-                raise Exception(f"You didn't specify a mean to be used!")
+        loss = _masked_gamma_loss(
+            batch["spectra"],
+            pred_spectra,
+            batch["mask"],
+            reduction=configs_mean,
+        )
         return loss
 
     corrected_gamma_loss = val_corrected_gamma_fn(state.params)
-    mse = optax.losses.squared_error(pred_spectra, batch["spectra"]).mean()             # Mean square error - normalized L2 loss - scalar value that evaluates the overall prediction accuracy of a model across the dataset
+    mse = _masked_mse_loss(batch["spectra"], pred_spectra, batch["mask"])             # Mean square error on hidden positions only
     
     val_metrics = {
         "val_corrected_gamma_loss": corrected_gamma_loss,
@@ -729,10 +767,13 @@ def train_step_pmap_arithmetic(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        local_loss = jnp.mean(loss_array)
+
+        local_loss = _masked_gamma_loss(
+            batch["spectra"],
+            pred_spectra,
+            batch["mask"],
+            reduction="Arithmetic",
+        )
         
         return local_loss # scalar per device
     
@@ -747,9 +788,8 @@ def train_step_pmap_arithmetic(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss = jnp.mean( (pred_spectra - batch["spectra"]) ** 2 )
-        return loss
+
+        return _masked_mse_loss(batch["spectra"], pred_spectra, batch["mask"])
     
     match loss_fn:
         case "CorrGamma":
@@ -826,10 +866,13 @@ def validation_step_pmap_arithmetic(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        local_loss = jnp.mean(loss_array)
+
+        local_loss = _masked_gamma_loss(
+            batch["spectra"],
+            pred_spectra,
+            batch["mask"],
+            reduction="Arithmetic",
+        )
         
         return local_loss # scalar per device
     
@@ -844,9 +887,8 @@ def validation_step_pmap_arithmetic(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss = jnp.mean( (pred_spectra - batch["spectra"]) ** 2 )
-        return loss
+
+        return _masked_mse_loss(batch["spectra"], pred_spectra, batch["mask"])
     
     match loss_fn:
         case "CorrGamma":
@@ -898,10 +940,13 @@ def train_step_pmap_geometric(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        local_loss = my_geometric_mean(loss_array)
+
+        local_loss = _masked_gamma_loss(
+            batch["spectra"],
+            pred_spectra,
+            batch["mask"],
+            reduction="Geometric",
+        )
         
         return local_loss # scalar per device
     
@@ -979,10 +1024,13 @@ def validation_step_pmap_geometric(
         )
         
         nan_inf_check(pred_spectra)
-        
-        loss_array = (( batch["spectra"]/pred_spectra - 1) - jnp.log( batch["spectra"]/pred_spectra ))
-        
-        local_loss = my_geometric_mean(loss_array)
+
+        local_loss = _masked_gamma_loss(
+            batch["spectra"],
+            pred_spectra,
+            batch["mask"],
+            reduction="Geometric",
+        )
         
         return local_loss # scalar per device
     
