@@ -22,6 +22,30 @@ class LinearProjection(nn.Module):
         return x
 
 
+class SinusoidalPositionalEncoding(nn.Module):
+    """Continuous sinusoidal positional encoding for physical coordinates."""
+    
+    embedding_dim: int
+    min_freq: float = 1.0
+    max_freq: float = 1000.0
+
+    @nn.compact
+    def __call__(self, x):
+        # x shape: expected [..., 1]
+        half_dim = self.embedding_dim // 2
+        
+        freqs = jnp.geomspace(self.min_freq, self.max_freq, half_dim)
+        angles = x * freqs
+        
+        emb = jnp.concatenate([jnp.sin(angles), jnp.cos(angles)], axis=-1)
+        
+        if self.embedding_dim % 2 != 0:
+            pad_dims = [(0, 0)] * (emb.ndim - 1) + [(0, 1)]
+            emb = jnp.pad(emb, pad_dims)
+            
+        return emb
+
+
 def test_LinearProjection():
     """Test LinearProjection"""
     x = np.random.randn(1, 2, 3, 100)
@@ -85,9 +109,9 @@ class SpectraFormer(nn.Module):
         emb_counts = LinearProjection(self.embedding_dim)(
             counts
         )  # [batch_size, num_wave_numbers, 1]
-        emb_wave_number = LinearProjection(self.embedding_dim)(
+        emb_wave_number = SinusoidalPositionalEncoding(self.embedding_dim)(
             wave_number
-        )  # [num_wave_numbers, 1]
+        )  # [num_wave_numbers, embedding_dim]
         x = (
             emb_counts + emb_wave_number
         )  # [batch_size, num_wave_numbers, embedding_dim]
