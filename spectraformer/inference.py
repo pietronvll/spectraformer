@@ -29,47 +29,80 @@ def predict(apply_fn, variables, batch: Batch, *apply_fn_args):
     return res
 
 def plot_results_train(predictions, step, epoch, current_model_tag):
-    fig, ax = plt.subplots(figsize=(12.5, 6.5))
+    fig = plt.figure(figsize=(12.5, 12.5))
+    gs = fig.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.1)
+
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+
     wave_number = _restore_wave_number(predictions["wave_number"])
 
-    mask_boundaries = np.argwhere(
-        np.diff(predictions["mask"], prepend=np.array([True]))
-    )
-    for bdr in mask_boundaries:
-        ax.axvline(x=wave_number[bdr[0]], color="gray", alpha=0.5, linestyle=":")
+    # -------------------------
+    # Mask spans (union over all spectra)
+    # -------------------------
+    mask = np.asarray(predictions["mask"])
+    if mask.ndim > 1:
+        mask_any = np.any(mask, axis=tuple(range(mask.ndim - 1)))
+    else:
+        mask_any = mask.astype(bool)
 
-    for data_str in ["spectra", "predicted_spectra", "predicted_difference"]:
-        data = predictions[data_str]
-        if data.ndim > 1:
-            data = data.T
-        label_map = {
-            "spectra": "Data",
-            "predicted_spectra": "Model output",
-            "predicted_difference": "Spectral subtraction",
-        }
-        color = {
-            "spectra": "C0",
-            "predicted_spectra": "C1",
-            "predicted_difference": "C2",
-        }[data_str]
-        ax.plot(wave_number, data, '-o', markersize=1.3, lw=1.2, label=label_map[data_str], color=color)
-    if data.ndim > 1:
-        print(
-            f"Warning: found {data.shape[1]} predicted spectra in the provided dictionary. The plot might be crowded."
-        )
+    mask_intervals = []
+    start = None
+    for i, v in enumerate(mask_any):
+        if v and start is None:
+            start = i
+        elif not v and start is not None:
+            mask_intervals.append((start, i - 1))
+            start = None
+    if start is not None:
+        mask_intervals.append((start, len(mask_any) - 1))
 
-    ax.legend(frameon=True, fontsize='small')
-    ax.margins(x=0)
-    ax.grid(visible=True, which='both', axis='both', alpha=0.25)
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(300))
-    ax.xaxis.set_minor_locator(ticker.MultipleLocator(50))
-    ax.set_title(f'{current_model_tag}\nStep {step} -- Epoch {epoch}')
-    
-    ax.set_xlabel("Raman shift, cm$^{-1}$")
-    ax.set_ylabel("Intensity, a.u.")
-    ax.tick_params(axis='both', which='major')
-    ax.set_ylim(-0.3, 1.5)
-    return fig, ax
+    for s, e in mask_intervals:
+        for ax in (ax1, ax2):
+            ax.axvspan(
+                float(wave_number[s]), float(wave_number[e]),
+                color="gray", alpha=0.1, linewidth=0
+            )
+
+    # -------------------------
+    # Top panel: Data and Model output
+    # -------------------------
+    spectra = np.asarray(predictions["spectra"])
+    pred_spectra = np.asarray(predictions["predicted_spectra"])
+
+    if spectra.ndim > 1:
+        spectra = spectra.T
+    if pred_spectra.ndim > 1:
+        pred_spectra = pred_spectra.T
+
+    ax1.plot(wave_number, spectra, color="C0", lw=1.2, label="Data")
+    ax1.plot(wave_number, pred_spectra, color="C1", lw=1.2, label="Model output")
+
+    ax1.legend(frameon=True, fontsize='small')
+    ax1.set_ylabel("Intensity, a.u.")
+    ax1.xaxis.set_major_locator(ticker.MultipleLocator(300))
+    ax1.xaxis.set_minor_locator(ticker.MultipleLocator(50))
+
+    # -------------------------
+    # Bottom panel: Spectral subtraction (difference)
+    # -------------------------
+    difference = np.asarray(predictions["predicted_difference"])
+    if difference.ndim > 1:
+        difference = difference.T
+
+    ax2.plot(wave_number, difference, color="C2", lw=1.2, label="Spectral subtraction")
+    ax2.axhline(0, color='k', alpha=0.4)
+    ax2.legend(frameon=True, fontsize='small')
+    ax2.set_xlabel("Raman shift, cm$^{-1}$")
+    ax2.set_ylabel("Intensity, a.u.")
+    ax2.set_ylim(-0.08, 0.32)
+    ax2.xaxis.set_major_locator(ticker.MultipleLocator(300))
+    ax2.xaxis.set_minor_locator(ticker.MultipleLocator(50))
+
+    fig.suptitle(f'{current_model_tag}\nStep {step} -- Epoch {epoch}', y=0.995)
+    fig.align_ylabels([ax1, ax2])
+
+    return fig, ax1
 
 def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None):
     fig, ax = plt.subplots(figsize=(12.5, 6.5))
@@ -77,8 +110,10 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None
 
     loss = np.asarray(loss)
     if mask is not None:
-        visible_mask = np.asarray(mask).astype(bool)
-        hidden_mask = ~visible_mask
+        mask_bool = np.asarray(mask).astype(bool)
+        if mask_bool.ndim > 1:
+            mask_bool = np.any(mask_bool, axis=tuple(range(1, mask_bool.ndim)))
+        hidden_mask = ~mask_bool
         loss_to_plot = np.where(hidden_mask, loss, np.nan)
         arithmetic_mean = np.nanmean(loss_to_plot)
     else:
@@ -86,8 +121,7 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None
         arithmetic_mean = np.mean(loss_to_plot)
     
     ax.plot(dummy_wave_number, loss_to_plot, label='Masked-region loss', color='C2', lw=1.2)
-    
-    ax.axhline(arithmetic_mean, label="Arithmetic mean", color="r", alpha=1, linestyle=":")
+    ax.axhline(float(arithmetic_mean), label="Arithmetic mean", color="r", alpha=1, linestyle=":")
     
     ax.set_xlabel("Raman shift, cm$^{-1}$")
     ax.set_ylabel("Loss, a.u.")
