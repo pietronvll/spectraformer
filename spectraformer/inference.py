@@ -29,7 +29,7 @@ def predict(apply_fn, variables, batch: Batch, *apply_fn_args):
     return res
 
 def plot_results_train(predictions, step, epoch, current_model_tag):
-    fig = plt.figure(figsize=(12.5, 12.5))
+    fig = plt.figure(figsize=(12.5, 12.5), constrained_layout=True)
     gs = fig.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.1)
 
     ax1 = fig.add_subplot(gs[0])
@@ -100,13 +100,12 @@ def plot_results_train(predictions, step, epoch, current_model_tag):
     ax2.xaxis.set_minor_locator(ticker.MultipleLocator(50))
 
     fig.suptitle(f'{current_model_tag}\nStep {step} -- Epoch {epoch}', y=0.975)
-    fig.subplots_adjust(top=0.92, bottom=0.08)
     fig.align_ylabels([ax1, ax2])
 
     return fig, ax1
 
 def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None):
-    fig, ax = plt.subplots(figsize=(12.5, 6.5))
+    fig, ax = plt.subplots(figsize=(12.5, 6.5), constrained_layout=True)
     dummy_wave_number = _restore_wave_number(dummy_wave_number)
 
     loss = np.asarray(loss)
@@ -134,7 +133,7 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None
         alpha=0.08,
         linewidth=0,
     )
-    ax.plot(dummy_wave_number, full_loss, label='Loss', color='C0', lw=0.9)
+    ax.plot(dummy_wave_number, full_loss, label='Loss', color='C0', lw=0.9, alpha=0.75, ls='--')
     ax.plot(dummy_wave_number, masked_loss, label='Masked-region loss', color='C0', lw=2.2)
     ax.axhline(float(arithmetic_mean), label="Masked mean", color="r", alpha=1, linestyle=":")
     
@@ -145,7 +144,6 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None
     ax.grid(visible=True, which='both', axis='both', alpha=0.25)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(300))
     ax.xaxis.set_minor_locator(ticker.MultipleLocator(50))
-    fig.subplots_adjust(top=0.88, bottom=0.14)
     
     ax.set_yscale('log')
     ax.set_ylim(1e-14, 1e+1)
