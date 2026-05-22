@@ -99,7 +99,8 @@ def plot_results_train(predictions, step, epoch, current_model_tag):
     ax2.xaxis.set_major_locator(ticker.MultipleLocator(300))
     ax2.xaxis.set_minor_locator(ticker.MultipleLocator(50))
 
-    fig.suptitle(f'{current_model_tag}\nStep {step} -- Epoch {epoch}', y=0.995)
+    fig.suptitle(f'{current_model_tag}\nStep {step} -- Epoch {epoch}', y=0.975)
+    fig.subplots_adjust(top=0.92, bottom=0.08)
     fig.align_ylabels([ax1, ax2])
 
     return fig, ax1
@@ -109,19 +110,33 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None
     dummy_wave_number = _restore_wave_number(dummy_wave_number)
 
     loss = np.asarray(loss)
+    full_loss = loss
     if mask is not None:
         mask_bool = np.asarray(mask).astype(bool)
         if mask_bool.ndim > 1:
             mask_bool = np.any(mask_bool, axis=tuple(range(1, mask_bool.ndim)))
         hidden_mask = ~mask_bool
-        loss_to_plot = np.where(hidden_mask, loss, np.nan)
-        arithmetic_mean = np.nanmean(loss_to_plot)
+        visible_mask = mask_bool
+        masked_loss = np.where(hidden_mask, loss, np.nan)
+        arithmetic_mean = np.nanmean(masked_loss)
     else:
-        loss_to_plot = loss
-        arithmetic_mean = np.mean(loss_to_plot)
+        hidden_mask = np.ones_like(loss, dtype=bool)
+        visible_mask = np.ones_like(loss, dtype=bool)
+        masked_loss = loss
+        arithmetic_mean = np.mean(masked_loss)
     
-    ax.plot(dummy_wave_number, loss_to_plot, label='Masked-region loss', color='C2', lw=1.2)
-    ax.axhline(float(arithmetic_mean), label="Arithmetic mean", color="r", alpha=1, linestyle=":")
+    ax.fill_between(
+        dummy_wave_number,
+        1e-14,
+        full_loss,
+        where=visible_mask,
+        color='C0',
+        alpha=0.08,
+        linewidth=0,
+    )
+    ax.plot(dummy_wave_number, full_loss, label='Loss', color='C0', lw=0.9)
+    ax.plot(dummy_wave_number, masked_loss, label='Masked-region loss', color='C0', lw=2.2)
+    ax.axhline(float(arithmetic_mean), label="Masked mean", color="r", alpha=1, linestyle=":")
     
     ax.set_xlabel("Raman shift, cm$^{-1}$")
     ax.set_ylabel("Loss, a.u.")
@@ -130,6 +145,7 @@ def plot_loss(dummy_wave_number, loss, step, epoch, current_model_tag, mask=None
     ax.grid(visible=True, which='both', axis='both', alpha=0.25)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(300))
     ax.xaxis.set_minor_locator(ticker.MultipleLocator(50))
+    fig.subplots_adjust(top=0.88, bottom=0.14)
     
     ax.set_yscale('log')
     ax.set_ylim(1e-14, 1e+1)
