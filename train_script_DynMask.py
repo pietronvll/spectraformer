@@ -19,7 +19,7 @@ Usage:
     export LD_PRELOAD=$VIRTUAL_ENV/lib/python3.11/site-packages/nvidia/cusparse/lib/libcusparse.so.12:$CUDA_DIR/lib64/libnvJitLink.so.12
     export XLA_FLAGS="--xla_gpu_cuda_data_dir=$CUDA_DIR --xla_gpu_autotune_level=1"
     export JAX_COMPILATION_CACHE_DIR=/work/dpoteryayev/.xla_cache
-    python train_script_DynMask.py   --model-tag min75_highf   --material SiC-high-f   --regime multi-gpu   --no-stream-datasets   --debug-logging   --debug-log-every-batches 1
+    python train_script_DynMask.py   --model-tag min79_highf   --material SiC-high-f   --regime multi-gpu   --no-stream-datasets   --debug-logging   --debug-log-every-batches 1
 
 
 

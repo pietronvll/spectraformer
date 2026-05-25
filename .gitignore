@@ -46,10 +46,19 @@ saved_models/checkpoints/spectraformer:min70_highf/*
 !saved_models/checkpoints/spectraformer:min70_highf/metadata/
 !saved_models/checkpoints/spectraformer:min70_highf/metadata/*
 
+# min79
+!saved_models/checkpoints/spectraformer:min79_highf/
+!saved_models/checkpoints/spectraformer:min79_highf/*
+!saved_models/checkpoints/spectraformer:min79_highf/139200/
+!saved_models/checkpoints/spectraformer:min79_highf/139200/*
+!saved_models/checkpoints/spectraformer:min79_highf/metadata/
+!saved_models/checkpoints/spectraformer:min79_highf/metadata/*
+
 
 configs/*
 !configs/configs_min70_highf.yaml
 !configs/configs_min72_highf.yaml
+!configs/configs_min79_highf.yaml
 
 
 # no need to have these at the cluster

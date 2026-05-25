@@ -50,14 +50,14 @@ def _hidden_region_mask(mask):
     return hidden_mask
 
 
-def _masked_gamma_loss(target, pred, mask, reduction: str, eps: float = 1e-8):
+def _masked_gamma_loss(target, pred, mask, reduction: str, eps: float = 1e-8, is_mask=False):
     """Gamma deviance computed only on hidden positions."""
     target = jnp.clip(target, eps, None)
     pred = jnp.clip(pred, eps, None)
     ratio = target / pred
     loss_array = (ratio - 1.0) - jnp.log(ratio)
 
-    hidden_mask = _hidden_region_mask(mask).astype(loss_array.dtype)
+    hidden_mask = _hidden_region_mask(mask).astype(loss_array.dtype) if is_mask else jnp.ones_like(loss_array)
     masked_loss_array = loss_array * hidden_mask
     masked_count = jnp.maximum(jnp.sum(hidden_mask), 1.0)
 
