@@ -1,59 +1,30 @@
 #!/.venv/bin/env python3
 """
-SpectraFormer Multi-Map Raman Unmixing + Voigt Peak Fitting Pipeline
-====================================================================
+Run SpectraFormer inference on one folder of Raman .txt maps, then fit Voigt peaks
+on the aggregated median predicted-difference spectrum.
 
-Complete end-to-end workflow for analyzing homogeneous material growth across substrate:
+Pipeline summary:
+1) Load all .txt maps from an input folder
+2) Preprocess each map with `whitaker_hayes_with_outliers`
+3) Aggregate all spectra and run one inference pass
+4) Compute median/std across predictions
+5) Skip fitting when signal is below threshold, otherwise run constrained Voigt fit
+6) Compute peak-ratio loss and save JSON/CSV/PNG outputs
 
-  1. Scan input folder for all .txt Raman spectral maps
-  2. Load all maps and preprocess them using whitaker_hayes_with_outliers
-  3. Aggregate all preprocessed maps into a single dataset for inference
-  4. Run single SpectraFormer inference on combined dataset (min70_highf checkpoint)
-  5. Compute median spectrum and standard deviation across all spectra
-  6. Validity check: if max(median) < 0.05, skip fitting (no material grown), loss = 4.0
-  7. [If valid] Fit median spectrum with multiple Voigt profiles
-  8. Calculate loss function based on peak area ratios
-  9. Save results with loss calculation and generate visualization
+Output path is auto-generated as:
+`<output_root>/<material>/<sample>/<YYYYMMDD_HHMMSS>/`
+where material/sample are inferred from input path relative to `data/raw_data`.
 
-Multi-Map Analysis:
-  This pipeline is designed for measuring material growth homogeneity across
-  different substrate regions. It aggregates all .txt files in the input folder
-  into a single large dataset and performs one inference pass followed by one
-  fitting operation, ensuring consistent peak constraints across all data.
-
-Required Arguments:
-    --input     Path to folder containing .txt Raman spectral maps
-    --output    Output directory for results (JSON, CSV, PNG)
-
-Peak Parameters (Graphene - 4 peaks for loss calculation):
-    B (1492), L (1564), G (1607), 2D (2735) cm⁻¹
-    (D1, D2a, D2b, D2c included in fitting but not used in loss calculation)
-
-Peak parameters and model checkpoint are hardcoded (see DEFAULT_PEAKS, DEFAULT_MODEL, DEFAULT_FITTING).
-Modify these constants in the script to customize for your material system.
-
-Usage Examples:
-    # Standard run with all maps in folder
-    python infer_and_fit_raman_map.py --input "data/raw_data/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1" --output "temp/fit_output/buffer+graphene/RUN3REC2_Buffer_20241011_1/5_5_1" 
-    python infer_and_fit_raman_map.py --input "data/raw_data/SiC-high-f/6H_spectra_20250423/5s_5p" --output "temp/fit_output/SiC-high-f/6H_spectra_20250423/5s_5p" 
-    python infer_and_fit_raman_map.py --input "data/raw_data/buffer+graphene/G1850A11" --output "temp/fit_output/buffer+graphene/G1850A11" 
-    
-    python infer_and_fit_raman_map.py --input "data/raw_data/buffer+graphene/20260410_buffer2" --output "temp/fit_output/buffer+graphene/20260410_buffer2"
-
-Output Files:
-    - fitting_results.json      : Peak parameters, uncertainties, quality metrics, AND loss function
-    - fitting_parameters.csv    : CSV table of all peak parameters
-    - fitting_visualization.png : 2-panel plot with spectrum, fit, uncertainty band, and components
-
-Author: SpectraFormer Pipeline
-Date: 2026
+Usage examples:
+    python infer_and_fit_raman_map.py --model-tag "min79_highf" --input "data/raw_data/buffer+graphene/G1850A11"
+    python infer_and_fit_raman_map.py --model-tag "min79_highf" --input "data/raw_data/SiC-high-f/6H_spectra_20250423/5s_5p" --no-mask-shading
+    python infer_and_fit_raman_map.py --model-tag "min79_highf" --input "data/raw_data/buffer+graphene/20260410_buffer2" --output-root "temp/fit_output"
 """
 
 import logging
 import argparse
 import json
 import time
-import copy
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 
@@ -79,30 +50,47 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# DEFAULT PARAMETERS
+# ============================================================================
+
+# Hardcoded peak parameters for graphene Raman spectra
+peak_names = {
+    "D": 1360,
+    "B": 1492,
+    "L": 1564,
+    "G": 1607,
+    "2D": 2735,
+}
+
+DEFAULT_PEAKS = {
+    "centers": list(peak_names.values()),
+    "widths": [40.0] * len(peak_names),
+    "gamma_ratios": [0.01] * len(peak_names),
+    "peak_names": list(peak_names.keys()),
+}
+
+DEFAULT_FITTING = {
+    "center_windows": [20.0] * len(DEFAULT_PEAKS["peak_names"]),
+    "min_widths": [25.0] * len(DEFAULT_PEAKS["peak_names"]),
+    "max_widths": [250, 100, 50, 100, 250],
+    "maxfev": 30000,
+}
+
+DEFAULT_MODEL = "min79_highf"
+DEFAULT_CKPTS_DIR = "./saved_models/checkpoints"
+DEFAULT_CONFIGS_DIR = "./configs"
+DEFAULT_OUTPUT_ROOT = "temp/fit_output"
+
+PENALTY_LOSS = 100.0
+FIT_THRESHOLD = 0.1
+
+
+# ============================================================================
 # DATA LOADING
 # ============================================================================
 
 def parse_dataset(path: str) -> xr.DataArray:
-    """
-    Parse Raman spectral map from .txt file.
-    
-    Expected format (tab or space-delimited):
-        X_0  X_1  ...  X_n  wave_number  intensity
-        ...
-    
-    Last two columns are wave_number and intensity.
-    All preceding columns are spatial coordinates.
-    
-    Parameters:
-    -----------
-    path : str
-        Path to .txt file
-    
-    Returns:
-    --------
-    xr.DataArray
-        Spectral map with dimensions X_0, X_1, ..., wave_number
-    """
+    """Load one ASCII map file into an xarray with spatial dims + `wave_number`."""
     _data = np.loadtxt(path, unpack=True)
     wave_number, _counts = _data[-2], _data[-1]
     num_coords = len(_data) - 2
@@ -123,19 +111,7 @@ def parse_dataset(path: str) -> xr.DataArray:
 
 
 def load_all_txt_files(folder_path: Path) -> List[xr.DataArray]:
-    """
-    Load all .txt files from a folder.
-    
-    Parameters:
-    -----------
-    folder_path : Path
-        Path to folder containing .txt files
-    
-    Returns:
-    --------
-    List[xr.DataArray]
-        List of parsed DataArrays from all .txt files
-    """
+    """Parse all `*.txt` files in `folder_path` and return them in sorted order."""
     txt_files = sorted(folder_path.glob("*.txt"))
     if not txt_files:
         logger.error(f"No .txt files found in {folder_path}")
@@ -151,21 +127,7 @@ def load_all_txt_files(folder_path: Path) -> List[xr.DataArray]:
 
 
 def aggregate_preprocessed_maps(dataarrays: List[xr.DataArray]) -> xr.DataArray:
-    """
-    Aggregate multiple preprocessed maps into a single (spectra, wave_number) dataset.
-    
-    Concatenates along the 'spectra' dimension, creating a 2D array suitable for batch inference.
-    
-    Parameters:
-    -----------
-    dataarrays : List[xr.DataArray]
-        List of DataArrays with dimensions (spectra, wave_number)
-    
-    Returns:
-    --------
-    xr.DataArray
-        Aggregated array with dimensions (spectra, wave_number)
-    """
+    """Concatenate preprocessed maps along `spectra` for batch inference."""
     # Concatenate along spectra dimension
     aggregated = xr.concat(dataarrays, dim='spectra')
     
@@ -173,149 +135,6 @@ def aggregate_preprocessed_maps(dataarrays: List[xr.DataArray]) -> xr.DataArray:
     logger.info(f"  ✓ Total spectra: {aggregated.sizes['spectra']}")
     
     return aggregated
-
-
-# # ============================================================================
-# # OUTLIER FILTERING (Modified Z-Score Method)
-# # ============================================================================
-
-# def modified_z_score(spectrum: np.ndarray) -> np.ndarray:
-#     """
-#     Calculates the modified z-scores of a given spectrum.
-    
-#     Modified z-score is more robust to outliers than standard z-score,
-#     using median absolute deviation (MAD) instead of standard deviation.
-    
-#     Parameters:
-#     -----------
-#     spectrum : np.ndarray
-#         Input spectrum values
-    
-#     Returns:
-#     --------
-#     np.ndarray
-#         Modified z-scores for each point
-#     """
-#     median_val = np.median(spectrum)
-#     mad = np.median(np.abs(spectrum - median_val))
-#     if mad == 0:
-#         return np.zeros_like(spectrum)
-#     return 0.6745 * (spectrum - median_val) / mad
-
-
-# def whitaker_hayes_modified_z_score(spectrum: np.ndarray) -> np.ndarray:
-#     """
-#     Calculates the Whitaker-Hayes modified z-scores of spectrum differences.
-    
-#     This detects spikes by looking at discontinuities in the spectrum.
-    
-#     Parameters:
-#     -----------
-#     spectrum : np.ndarray
-#         Input spectrum values
-    
-#     Returns:
-#     --------
-#     np.ndarray
-#         Absolute modified z-scores of spectrum first differences
-#     """
-#     return np.abs(modified_z_score(np.diff(spectrum)))
-
-
-# def whitaker_hayes_spectrum(
-#     intensity_values_array: np.ndarray,
-#     kernel_size: int = 3,
-#     threshold: float = 8.0
-# ) -> np.ndarray:
-#     """
-#     Apply Whitaker-Hayes spike detection and removal to a single spectrum.
-    
-#     Iteratively identifies spikes based on modified z-scores and replaces
-#     them with the median of non-spike neighbors.
-    
-#     Parameters:
-#     -----------
-#     intensity_values_array : np.ndarray
-#         Single spectrum to process
-#     kernel_size : int
-#         Neighborhood size for median replacement
-#     threshold : float
-#         Modified z-score threshold above which points are considered spikes
-    
-#     Returns:
-#     --------
-#     np.ndarray
-#         Spectrum with spikes removed
-#     """
-#     spectrum_array = copy.deepcopy(intensity_values_array)
-#     spikes_original = whitaker_hayes_modified_z_score(spectrum_array) > threshold
-    
-#     # Pad spikes array to match spectrum length (diff reduces by 1)
-#     spikes = np.zeros(len(spectrum_array), dtype=bool)
-#     spikes[:-1] = spikes_original
-    
-#     iteration = 0
-#     max_iterations = 100
-    
-#     while np.any(spikes) and iteration < max_iterations:
-#         changes = False
-#         for i in range(len(spikes)):
-#             if spikes[i]:
-#                 neighbours = np.arange(
-#                     max(0, i - kernel_size),
-#                     min(len(spectrum_array), i + kernel_size + 1)
-#                 )
-#                 non_spike_neighbours = spectrum_array[neighbours[~spikes[neighbours]]]
-                
-#                 if len(non_spike_neighbours) > 0:
-#                     fixed_value = np.median(non_spike_neighbours)
-#                     if np.isfinite(fixed_value):
-#                         spectrum_array[i] = fixed_value
-#                         spikes[i] = False
-#                         changes = True
-        
-#         if not changes:
-#             break
-#         iteration += 1
-    
-#     return spectrum_array
-
-
-# def filter_outliers_modified_z_score(
-#     intensity_data: xr.DataArray,
-#     kernel_size: int = 3,
-#     threshold: float = 8.0
-# ) -> xr.DataArray:
-#     """
-#     Apply modified z-score outlier filtering to all spectra in a DataArray.
-    
-#     Parameters:
-#     -----------
-#     intensity_data : xr.DataArray
-#         Input spectral data with wave_number as last dimension
-#     kernel_size : int
-#         Neighborhood size for spike replacement
-#     threshold : float
-#         Modified z-score threshold for spike detection
-    
-#     Returns:
-#     --------
-#     xr.DataArray
-#         Filtered spectral data with same dimensions and coordinates
-#     """
-#     filtered_data = np.apply_along_axis(
-#         whitaker_hayes_spectrum,
-#         axis=-1,
-#         arr=intensity_data.values,
-#         kernel_size=kernel_size,
-#         threshold=threshold
-#     )
-    
-#     return xr.DataArray(
-#         filtered_data,
-#         dims=intensity_data.dims,
-#         coords=intensity_data.coords
-#     )
 
 
 # ============================================================================
@@ -329,27 +148,7 @@ def true_vectorized_voigt(
     gammas: np.ndarray, 
     areas: np.ndarray
 ) -> np.ndarray:
-    """
-    Truly vectorized Voigt profile computation using broadcasting.
-    
-    Parameters:
-    -----------
-    x : np.ndarray
-        Energy/frequency axis (shape: (n_energy,))
-    centers : np.ndarray
-        Peak centers (shape: (n_spectra,))
-    sigmas : np.ndarray
-        Gaussian std dev (shape: (n_spectra,))
-    gammas : np.ndarray
-        Lorentzian half-width (shape: (n_spectra,))
-    areas : np.ndarray
-        Peak areas (shape: (n_spectra,))
-    
-    Returns:
-    --------
-    np.ndarray
-        Voigt profiles (shape: (n_spectra, n_energy))
-    """
+    """Compute area-normalized Voigt profiles for many peaks using broadcasting."""
     # Reshape for broadcasting: (n_spectra, 1) vs (1, n_energy)
     x_reshaped = x.reshape(1, -1)
     centers_reshaped = centers.reshape(-1, 1)
@@ -378,29 +177,7 @@ def batch_voigt_profiles(
     gamma_fracs: np.ndarray,
     min_width: float = 1e-10
 ) -> np.ndarray:
-    """
-    Vectorized computation of multiple Voigt profiles with shared energy axis.
-    
-    Parameters:
-    -----------
-    x : np.ndarray
-        Energy axis (shape: (n_energy,))
-    centers : np.ndarray 
-        Peak centers (shape: (n_spectra,))
-    widths : np.ndarray
-        Voigt FWHM (shape: (n_spectra,))
-    areas : np.ndarray
-        Peak areas (shape: (n_spectra,))
-    gamma_fracs : np.ndarray
-        Lorentzian fractions (shape: (n_spectra,))
-    min_width : float
-        Minimum width for numerical stability
-    
-    Returns:
-    --------
-    np.ndarray
-        Array of Voigt profiles (shape: (n_spectra, n_energy))
-    """
+    """Evaluate Voigt profiles from center/FWHM/area/lorentz-fraction parameters."""
     n_spectra = len(centers)
     if n_spectra == 0:
         return np.zeros((0, len(x)))
@@ -453,29 +230,7 @@ def voigt_profile(
     lorentz_frac: float, 
     min_width: float = 1e-10
 ) -> np.ndarray:
-    """
-    Single area-normalized Voigt profile.
-    
-    Parameters:
-    -----------
-    x : np.ndarray
-        Energy axis
-    center : float
-        Peak center
-    voigt_fwhm : float
-        Voigt FWHM
-    area : float
-        Peak area
-    lorentz_frac : float
-        Lorentzian fraction [0,1]
-    min_width : float
-        Minimum width for stability
-    
-    Returns:
-    --------
-    np.ndarray
-        Voigt profile values at x
-    """
+    """Convenience wrapper returning one Voigt profile over axis `x`."""
     return batch_voigt_profiles(
         x.reshape(1, -1),
         np.array([center]),
@@ -487,11 +242,7 @@ def voigt_profile(
 
 
 def multi_voigt_free_gamma(x: np.ndarray, *flat_params: float) -> np.ndarray:
-    """
-    Sum of N Voigt peaks.
-    
-    flat_params should be multiple of 4: (center, width, area, gamma_ratio) per peak.
-    """
+    """Return the sum of Voigt peaks from flattened 4-parameter groups."""
     x = np.asarray(x)
     y_model = np.zeros_like(x, dtype=float)
     n_params = len(flat_params)
@@ -504,23 +255,7 @@ def multi_voigt_free_gamma(x: np.ndarray, *flat_params: float) -> np.ndarray:
 
 
 def calculate_fwhm(energy: np.ndarray, spectrum: np.ndarray, baseline_mode: Optional[str] = None) -> float:
-    """
-    Calculate FWHM from half-maximum crossings.
-    
-    Parameters:
-    -----------
-    energy : np.ndarray
-        Energy/frequency axis
-    spectrum : np.ndarray
-        Spectrum values
-    baseline_mode : Optional[str]
-        Baseline handling: None (half=peak/2), 'min' (half=(peak+min)/2), 'edge'
-    
-    Returns:
-    --------
-    float
-        FWHM value or np.nan if invalid
-    """
+    """Estimate FWHM by linear interpolation at half-height crossings."""
     x = np.asarray(energy, dtype=float)
     y = np.asarray(spectrum, dtype=float)
 
@@ -587,7 +322,7 @@ def build_initial_guesses_and_bounds(
     min_widths: List[float],
     max_widths: List[float]
 ) -> Tuple[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
-    """Build initial parameter guesses and bounds for curve fitting."""
+    """Build `curve_fit` initial parameters and bounds for all Voigt peaks."""
     p0_list, lb_list, ub_list = [], [], []
     
     for i, c0 in enumerate(centers):
@@ -647,25 +382,10 @@ def build_initial_guesses_and_bounds(
 def load_model_and_predict(
     checkpoint_tag: str,
     dataset: xr.DataArray,
-    ckpts_path: Path
-) -> Dict[str, Any]:
-    """
-    Load SpectraFormer model and run inference on preprocessed dataset.
-    
-    Parameters:
-    -----------
-    checkpoint_tag : str
-        Checkpoint name (with or without 'spectraformer:' prefix)
-    dataset : xr.DataArray
-        Preprocessed spectral data (stacked to 'spectra', 'wave_number' dims)
-    ckpts_path : Path
-        Path to checkpoints directory
-    
-    Returns:
-    --------
-    Dict[str, Any]
-        Predictions dict with keys: spectra, predicted_spectra, predicted_difference, wave_number, mask
-    """
+    ckpts_path: Path,
+    configs: Any
+) -> Tuple[List[Dict[str, Any]], Any, List[Tuple[int, int]]]:
+    """Restore a SpectraFormer checkpoint and run predictions on `dataset`."""
     import jax
     import jax.numpy as jnp
     import optax
@@ -692,23 +412,6 @@ def load_model_and_predict(
         read_only=True, save_interval_steps=0, create=False
     )
     ckpt_manager = ocp.CheckpointManager(checkpoint_path, options=ckpt_options)
-
-    # Get config
-    configs_dict = ckpt_manager.metadata()
-    if configs_dict is None:
-        raise ValueError(
-            "Checkpoint does not contain configuration metadata. "
-            "This checkpoint may have been created with an older version."
-        )
-    if "custom" in configs_dict:
-        configs_dict = configs_dict["custom"]
-
-    class Config:
-        def __init__(self, d):
-            for k, v in d.items():
-                setattr(self, k, v)
-
-    configs = Config(configs_dict)
 
     # Build learning rate schedule (required for checkpoint restoration)
     cosine_kwargs = []
@@ -813,6 +516,25 @@ def load_model_and_predict(
     return predictions, configs, mask_windows
 
 
+def build_output_dir_from_input(input_folder: Path, output_root: Path) -> Path:
+    """Create timestamped output directory inferred from input path structure."""
+    parts = input_folder.resolve().parts
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    if "raw_data" in parts:
+        raw_idx = parts.index("raw_data")
+        if len(parts) >= raw_idx + 3:
+            material = parts[raw_idx + 1]
+            sample_parts = parts[raw_idx + 2:]
+            return output_root / material / Path(*sample_parts) / timestamp
+
+    logger.warning(
+        "Could not infer material/sample from input path relative to 'raw_data'. "
+        "Using fallback path unknown_material/<input_folder_name>."
+    )
+    return output_root / "unknown_material" / input_folder.name / timestamp
+
+
 # ============================================================================
 # FITTING & LOSS CALCULATION
 # ============================================================================
@@ -831,29 +553,7 @@ def fit_averaged_spectrum(
     maxfev: int = 20000,
     tolerances: Optional[Dict[str, float]] = None
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], str]:
-    """
-    Fit averaged spectrum with multiple Voigt profiles.
-    
-    Parameters:
-    -----------
-    x : np.ndarray
-        Raman shift axis (cm^-1)
-    y : np.ndarray
-        Averaged spectrum intensities
-    centers, peak_names, widths, amp_maxs, gamma_ratios : List
-        Peak parameters
-    center_windows, min_widths, max_widths : List
-        Fitting constraints
-    maxfev : int
-        Max function evaluations
-    tolerances : Optional[Dict[str, float]]
-        Convergence tolerances {ftol, xtol, gtol}
-    
-    Returns:
-    --------
-    Tuple[Optional[np.ndarray], Optional[np.ndarray], str]
-        (popt, pcov, status_message) or (None, None, error_message)
-    """
+    """Fit the median spectrum with constrained multi-Voigt model parameters."""
     if tolerances is None:
         tolerances = {"ftol": 1e-5, "xtol": 1e-5, "gtol": 1e-5}
     
@@ -888,36 +588,12 @@ def fit_averaged_spectrum(
         return None, None, error_msg
 
 def loss_term(value, target: float = 0.0):
+    """Return squared error to target for one scalar loss component."""
     return ((value - target)**2)
 
 
 def calculate_loss(popt: np.ndarray, peak_names: List[str], centers: List[float]) -> Dict[str, float]:
-    """
-    Calculate loss function based on peak area ratios.
-    
-    Loss function promotes growth measured by D-band peaks (B, L, G, 2D).
-    
-    Parameters:
-    -----------
-    popt : np.ndarray
-        Fitted parameters [c0, w0, A0, r0, c1, w1, A1, r1, ...]
-    peak_names : List[str]
-        Peak identifiers (e.g., ['D1', 'D2a', 'B', 'L', 'G', '2D'])
-    centers : List[float]
-        Expected peak centers for reference
-    
-    Returns:
-    --------
-    Dict[str, float]
-        Dictionary with keys:
-        - 'loss': Final loss value [0, 4]
-        - 'loss_term_1': Area(2D) / Area(G)
-        - 'loss_term_2': Area(B) / Area(G)
-        - 'area_2D': Fitted area of 2D peak
-        - 'area_G': Fitted area of G peak
-        - 'area_B': Fitted area of B peak
-        - 'area_L': Fitted area of L peak
-    """
+    """Compute growth loss from fitted peak areas using three ratio-based terms."""
     # Extract peak indices for B, G, L, 2D
     try:
         idx_B = peak_names.index('B')
@@ -930,6 +606,7 @@ def calculate_loss(popt: np.ndarray, peak_names: List[str], centers: List[float]
             'loss': 2.0,
             'loss_term_1': np.nan,
             'loss_term_2': np.nan,
+            'loss_term_3': np.nan,
             'error': f'Missing peak: {e}'
         }
     
@@ -938,7 +615,8 @@ def calculate_loss(popt: np.ndarray, peak_names: List[str], centers: List[float]
     area_G = popt[idx_G * 4 + 2]
     area_L = popt[idx_L * 4 + 2]
     area_2D = popt[idx_2D * 4 + 2]
-    sum_all_areas = area_B + area_G + area_L + area_2D
+    area_all = np.sum(popt[2::4])
+    area_BLG = area_B + area_L + area_G
     
     # Calculate loss terms
     # Loss term 1: Area(2D) / Area(G) -> should be 0 (no competition with G)
@@ -952,31 +630,44 @@ def calculate_loss(popt: np.ndarray, peak_names: List[str], centers: List[float]
         loss_term_2_value = area_B / area_G
     else:
         loss_term_2_value = np.inf if area_B > 0 else 0.0
+
+    # Loss term 3: Area(B+L+G) / Total area -> should be 1
+    if area_all > 0:
+        loss_term_3_value = area_BLG / area_all
+    else:
+        loss_term_3_value = 0.0
     
     loss_term_1 = loss_term(loss_term_1_value, target=0.0)
     loss_term_2 = loss_term(loss_term_2_value, target=1.0)
-    loss = (loss_term_1 + loss_term_2) ** 2
+    loss_term_3 = loss_term(loss_term_3_value, target=1.0)
+    loss = (loss_term_1 + loss_term_2 + loss_term_3) ** 2
     
     logger.info(f"  ✓ Loss components:")
     logger.info(f"    - Area(2D): {area_2D}")
     logger.info(f"    - Area(G): {area_G}")
     logger.info(f"    - Area(B): {area_B}")
     logger.info(f"    - Area(L): {area_L}")
+    logger.info(f"    - Area(B+L+G): {area_BLG}")
+    logger.info(f"    - Total area (all peaks): {area_all}")
     logger.info(f"    - Area(2D)/Area(G): {area_2D/area_G if area_G > 0 else 'inf'}")
     logger.info(f"    - Area(B)/Area(G): {area_B/area_G if area_G > 0 else 'inf'}")
+    logger.info(f"    - Area(B+L+G)/Total: {loss_term_3_value}")
     logger.info(f"    - Loss_term_1 (2D/G): {loss_term_1}")
     logger.info(f"    - Loss_term_2 (B/G): {loss_term_2}")
-    logger.info(f"    - Loss total: {loss} (range: 0 to 4)")
+    logger.info(f"    - Loss_term_3 ((B+L+G)/Total): {loss_term_3}")
+    logger.info(f"    - Loss total: {loss}")
     
     return {
         'loss': float(loss),
         'loss_term_1': float(loss_term_1),
         'loss_term_2': float(loss_term_2),
+        'loss_term_3': float(loss_term_3),
+        'ratio_BLG_over_total': float(loss_term_3_value),
         'area_2D': float(area_2D),
         'area_G': float(area_G),
         'area_B': float(area_B),
         'area_L': float(area_L),
-        'sum_areas': float(sum_all_areas)
+        'sum_areas': float(area_all)
     }
 
 
@@ -988,28 +679,10 @@ def create_fit_visualization(
     centers: List[float],
     peak_names: List[str],
     output_path: Path,
-    y_std: Optional[np.ndarray] = None
+    y_std: Optional[np.ndarray] = None,
+    mask_intervals: Optional[List[Tuple[int, int]]] = None
 ):
-    """
-    Create visualization of median spectrum with ±1std band and multi-peak fit.
-    
-    Parameters:
-    -----------
-    x : np.ndarray
-        Raman shift axis
-    y : np.ndarray
-        Median spectrum
-    popt : np.ndarray
-        Fitted parameters
-    centers : List[float]
-        Peak center positions (for reference)
-    peak_names : List[str]
-        Names of peaks (e.g., ['D1', 'D2', 'G', '2D'])
-    output_path : Path
-        Path to save figure
-    y_std : Optional[np.ndarray]
-        Standard deviation spectrum for ±1std band
-    """
+    """Plot median spectrum, optional std shading, visible (unmasked) spans, fit, and components."""
     fig, ax = plt.subplots(1, 1, figsize=(16, 7), constrained_layout=True)
     
     # Calculate fit and components
@@ -1025,6 +698,44 @@ def create_fit_visualization(
     # Add ±1std shaded region if std provided
     if y_std is not None:
         ax.fill_between(x, y - y_std, y + y_std, alpha=0.15, color='blue', label='±1 std')
+
+    if mask_intervals:
+        x_min = float(np.min(x))
+        x_max = float(np.max(x))
+
+        hidden_intervals = []
+        for s, e in mask_intervals:
+            start = float(min(s, e))
+            end = float(max(s, e))
+            span_start = max(start, x_min)
+            span_end = min(end, x_max)
+            if span_end > span_start:
+                hidden_intervals.append((span_start, span_end))
+
+        hidden_intervals.sort(key=lambda t: t[0])
+        merged_hidden = []
+        for start, end in hidden_intervals:
+            if not merged_hidden or start > merged_hidden[-1][1]:
+                merged_hidden.append([start, end])
+            else:
+                merged_hidden[-1][1] = max(merged_hidden[-1][1], end)
+
+        shown_intervals = []
+        cursor = x_min
+        for start, end in merged_hidden:
+            if start > cursor:
+                shown_intervals.append((cursor, start))
+            cursor = max(cursor, end)
+        if cursor < x_max:
+            shown_intervals.append((cursor, x_max))
+        if not merged_hidden:
+            shown_intervals = [(x_min, x_max)]
+
+        for start, end in shown_intervals:
+            ax.axvspan(
+                start, end,
+                color="gray", alpha=0.1, linewidth=0
+            )
     
     ax.plot(x, y_fit, 'r-', linewidth=3.5, label='Fit')
     
@@ -1054,26 +765,10 @@ def create_fit_visualization_no_fit(
     centers: List[float],
     peak_names: List[str],
     output_path: Path,
-    y_std: Optional[np.ndarray] = None
+    y_std: Optional[np.ndarray] = None,
+    mask_intervals: Optional[List[Tuple[int, int]]] = None
 ):
-    """
-    Create visualization of median spectrum when no fitting was performed.
-    
-    Parameters:
-    -----------
-    x : np.ndarray
-        Raman shift axis
-    y : np.ndarray
-        Median spectrum
-    centers : List[float]
-        Peak center positions (for reference lines)
-    peak_names : List[str]
-        Names of peaks
-    output_path : Path
-        Path to save figure
-    y_std : Optional[np.ndarray]
-        Standard deviation spectrum for ±1std band
-    """
+    """Plot median spectrum without fitted peaks, including threshold and visible (unmasked) spans."""
     fig, ax = plt.subplots(1, 1, figsize=(16, 7), constrained_layout=True)
     
     # Plot spectrum
@@ -1082,10 +777,44 @@ def create_fit_visualization_no_fit(
     # Add ±1std shaded region if std provided
     if y_std is not None:
         ax.fill_between(x, y - y_std, y + y_std, alpha=0.25, color='blue', label='±1 std')
-    
-    # # Add reference lines for expected peak positions
-    # for center, peak_name in zip(centers, peak_names):
-    #     ax.axvline(center, color='gray', linestyle='--', alpha=0.5, linewidth=1)
+
+    if mask_intervals:
+        x_min = float(np.min(x))
+        x_max = float(np.max(x))
+
+        hidden_intervals = []
+        for s, e in mask_intervals:
+            start = float(min(s, e))
+            end = float(max(s, e))
+            span_start = max(start, x_min)
+            span_end = min(end, x_max)
+            if span_end > span_start:
+                hidden_intervals.append((span_start, span_end))
+
+        hidden_intervals.sort(key=lambda t: t[0])
+        merged_hidden = []
+        for start, end in hidden_intervals:
+            if not merged_hidden or start > merged_hidden[-1][1]:
+                merged_hidden.append([start, end])
+            else:
+                merged_hidden[-1][1] = max(merged_hidden[-1][1], end)
+
+        shown_intervals = []
+        cursor = x_min
+        for start, end in merged_hidden:
+            if start > cursor:
+                shown_intervals.append((cursor, start))
+            cursor = max(cursor, end)
+        if cursor < x_max:
+            shown_intervals.append((cursor, x_max))
+        if not merged_hidden:
+            shown_intervals = [(x_min, x_max)]
+
+        for start, end in shown_intervals:
+            ax.axvspan(
+                start, end,
+                color="gray", alpha=0.1, linewidth=0
+            )
     
     ax.axhline(FIT_THRESHOLD, color='red', linestyle='--', alpha=0.4, linewidth=1, label='Growth threshold')
     
@@ -1113,30 +842,7 @@ def save_results_no_fit(
     loss_value: float = 4.0,
     loss_reason: str = "No material growth detected"
 ):
-    """
-    Save results when fitting was skipped due to low signal.
-    
-    Parameters:
-    -----------
-    output_dir : Path
-        Output directory
-    centers : List[float]
-        Peak centers
-    peak_names : List[str]
-        Peak names
-    x : np.ndarray
-        Raman shift axis
-    y : np.ndarray
-        Median spectrum
-    predictions : List[Dict]
-        Model predictions
-    configs : Any
-        Model configuration
-    loss_value : float
-        Loss value to assign (default 4.0 for no growth)
-    loss_reason : str
-        Reason why fitting was skipped
-    """
+    """Write JSON/CSV outputs for the no-fit path when signal is below threshold."""
     output_dir.mkdir(parents=True, exist_ok=True)
     
     n_peaks = len(centers)
@@ -1168,6 +874,7 @@ def save_results_no_fit(
             "loss_reason": loss_reason,
             "loss_term_1": np.nan,
             "loss_term_2": np.nan,
+            "loss_term_3": np.nan,
             "description": {
                 "note": "No material growth detected",
                 "max_intensity": float(np.max(y)),
@@ -1205,32 +912,7 @@ def save_results(
     configs: Any,
     loss_dict: Optional[Dict[str, float]] = None
 ):
-    """
-    Save fitting results to JSON and CSV files.
-    
-    Parameters:
-    -----------
-    output_dir : Path
-        Output directory
-    popt : np.ndarray
-        Fitted parameters
-    pcov : np.ndarray
-        Covariance matrix
-    centers : List[float]
-        Peak centers
-    peak_names : List[str]
-        Peak names
-    x : np.ndarray
-        Raman shift axis
-    y : np.ndarray
-        Averaged spectrum
-    predictions : List[Dict]
-        Model predictions
-    configs : Any
-        Model configuration
-    loss_dict : Optional[Dict[str, float]]
-        Loss function calculation results
-    """
+    """Write fitting parameters, metrics, and optional loss to JSON/CSV files."""
     output_dir.mkdir(parents=True, exist_ok=True)
     
     n_peaks = len(centers)
@@ -1288,6 +970,8 @@ def save_results(
             "loss": loss_dict.get('loss', np.nan),
             "loss_term_1": loss_dict.get('loss_term_1', np.nan),
             "loss_term_2": loss_dict.get('loss_term_2', np.nan),
+            "loss_term_3": loss_dict.get('loss_term_3', np.nan),
+            "ratio_BLG_over_total": loss_dict.get('ratio_BLG_over_total', np.nan),
             "area_2D": loss_dict.get('area_2D', np.nan),
             "area_G": loss_dict.get('area_G', np.nan),
             "area_B": loss_dict.get('area_B', np.nan),
@@ -1295,7 +979,8 @@ def save_results(
             "total_area": loss_dict.get('sum_areas', np.nan),
             "description": {
                 "loss_term_1": "Area(2D) / Area(G) - should be 0 for good growth",
-                "loss_term_2": "Area(B) / Area(G) - should be 1 for structural"
+                "loss_term_2": "Area(B) / Area(G) - should be 1 for structural",
+                "loss_term_3": "Area(B+L+G) / Total area - should be 1"
             }
         }
     
@@ -1317,68 +1002,38 @@ def save_results(
 
 
 # ============================================================================
-# DEFAULT PARAMETERS
-# ============================================================================
-
-# Hardcoded peak parameters for graphene Raman spectra
-# Adjust these based on your material system (WS2, graphene, etc.)
-peak_names = {
-    # "D1": 1313, 
-    # "D2a": 1363, 
-    # "D2b": 1395,
-    # "D2c": 1445,
-    "D": 1360,
-    "B": 1492, 
-    "L": 1564, 
-    "G": 1607, 
-    "2D": 2735
-    }
-DEFAULT_PEAKS = {
-    "centers": list(peak_names.values()),      # Raman shift positions (cm^-1)
-    "widths": [40.0] * len(peak_names),       # Initial peak widths (cm^-1)
-    "gamma_ratios": [0.01] * len(peak_names),       # Lorentzian fractions [0,1]
-    "peak_names": list(peak_names.keys()),    # Peak identifiers
-}
-
-# Fitting constraints
-DEFAULT_FITTING = {
-    "center_windows": [20.0] * len(DEFAULT_PEAKS["peak_names"]),
-    "min_widths": [25.0] * len(DEFAULT_PEAKS["peak_names"]),
-    "max_widths": [250, 100, 50, 100, 250] ,
-    "maxfev": 30000,
-}
-
-# Model and paths
-DEFAULT_MODEL = "min70_highf"
-DEFAULT_CKPTS_DIR = "./saved_models/checkpoints"
-
-PENALTY_LOSS = 100.0  # Loss value to assign when fitting is skipped due to low signal
-FIT_THRESHOLD = 0.05  # Maximum intensity threshold to decide if fitting should be performed
-
-
-# ============================================================================
 # MAIN
 # ============================================================================
 
 def main():
-    """Main entry point."""
+    """Parse CLI arguments and run end-to-end inference, fitting, and export."""
     parser = argparse.ArgumentParser(
         description="SpectraFormer Multi-Map Raman Unmixing + Voigt Peak Fitting Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python infer_and_fit_raman_map.py --input "data/substrate_measurements/" --output "results/output"
+    python infer_and_fit_raman_map.py --model-tag "min79_highf" --input "data/substrate_measurements/"
 
 Peak parameters are hardcoded. To modify, edit DEFAULT_PEAKS in the script.
         """
+    )
+    parser.add_argument(
+        '--model-tag', type=str, default=DEFAULT_MODEL,
+        help='Model tag used for config/checkpoint lookup (default: min79_highf)'
     )
     parser.add_argument(
         '--input', type=str, required=True,
         help='Path to folder containing .txt files with Raman spectral maps'
     )
     parser.add_argument(
-        '--output', type=str, required=True,
-        help='Output directory for results'
+        '--output-root', type=str, default=DEFAULT_OUTPUT_ROOT,
+        help='Root output directory (default: temp/fit_output)'
+    )
+    parser.add_argument(
+        '--mask-shading',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='Show masked intervals as light shading on plots (default: enabled)'
     )
     
     args = parser.parse_args()
@@ -1391,10 +1046,28 @@ Peak parameters are hardcoded. To modify, edit DEFAULT_PEAKS in the script.
         logger.error(f"Input folder not found: {input_folder}")
         return
     
-    output_dir = Path(args.output)
+    output_root = Path(args.output_root)
+    output_dir = build_output_dir_from_input(input_folder, output_root)
     output_dir.mkdir(parents=True, exist_ok=True)
     ckpts_path = Path(DEFAULT_CKPTS_DIR)
-    checkpoint = DEFAULT_MODEL
+    checkpoint = args.model_tag
+    config_path = Path(DEFAULT_CONFIGS_DIR) / f"configs_{checkpoint}.yaml"
+
+    if not config_path.exists():
+        logger.error(f"Config file not found: {config_path}")
+        return
+
+    try:
+        import ml_confs
+    except ModuleNotFoundError:
+        logger.error(
+            "Package 'ml_confs' is required to load model config files. "
+            "Install it in your environment and rerun."
+        )
+        return
+
+    configs = ml_confs.from_file(config_path)
+    checkpoint_tag = getattr(configs, "tag", checkpoint)
     
     # Get peak parameters from defaults
     centers = DEFAULT_PEAKS["centers"]
@@ -1408,13 +1081,15 @@ Peak parameters are hardcoded. To modify, edit DEFAULT_PEAKS in the script.
     maxfev = DEFAULT_FITTING["maxfev"]
     
     amp_maxs = [None] * len(centers)
-    n_peaks = len(centers)
     
     logger.info("="*70)
     logger.info("SpectraFormer Multi-Map Raman Unmixing + Voigt Peak Fitting Pipeline")
     logger.info("="*70)
     logger.info(f"Input folder: {input_folder}")
-    logger.info(f"Model checkpoint: {checkpoint}")
+    logger.info(f"Model checkpoint: {checkpoint_tag}")
+    logger.info(f"Config file: {config_path}")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Mask shading: {'enabled' if args.mask_shading else 'disabled'}")
     logger.info(f"Peak parameters: {peak_names}")
     logger.info("="*70)
     
@@ -1445,7 +1120,7 @@ Peak parameters are hardcoded. To modify, edit DEFAULT_PEAKS in the script.
         # ====== STEP 4: Inference ======
         logger.info("Step 4: Running single SpectraFormer inference on aggregated dataset")
         predictions, configs, mask_windows = load_model_and_predict(
-            checkpoint, dataset_preprocessed, ckpts_path
+            checkpoint_tag, dataset_preprocessed, ckpts_path, configs
         )
         logger.info(f"  ✓ Inference complete. Generated {len(predictions)} predictions")
         
@@ -1483,8 +1158,9 @@ Peak parameters are hardcoded. To modify, edit DEFAULT_PEAKS in the script.
             
             # Create visualization even without fitting
             viz_path = output_dir / "fitting_visualization.png"
+            mask_intervals_plot = mask_windows if args.mask_shading else None
             create_fit_visualization_no_fit(
-                wave_number, median_diff, centers, peak_names, viz_path, std_diff
+                wave_number, median_diff, centers, peak_names, viz_path, std_diff, mask_intervals_plot
             )
             logger.info(f"  ✓ Saved visualization (no fit) to: {viz_path}")
             
@@ -1524,8 +1200,9 @@ Peak parameters are hardcoded. To modify, edit DEFAULT_PEAKS in the script.
         
         # Create visualization
         viz_path = output_dir / "fitting_visualization.png"
+        mask_intervals_plot = mask_windows if args.mask_shading else None
         create_fit_visualization(
-            wave_number, median_diff, popt, centers, peak_names, viz_path, std_diff
+            wave_number, median_diff, popt, centers, peak_names, viz_path, std_diff, mask_intervals_plot
         )
         logger.info(f"  ✓ Saved visualization to: {viz_path}")
         
