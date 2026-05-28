@@ -35,7 +35,7 @@ train_dataset:  "SiC_19x10x3" #"SiC_100x10"
 log_every_epochs: 1
 
 masked_interval_starts:   [   -1, 2500]
-masked_interval_ends:     [ 1800, 9999]
+masked_interval_ends:     [ 1660, 9999]
 random_mask: False
 
 # Dynamic masking
