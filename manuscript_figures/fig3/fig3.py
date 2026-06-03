@@ -14,6 +14,19 @@ is_filter = False
 filter_window_length = 15  # must be odd
 filter_polyorder = 3
 
+graphene_peaks = [
+    (1360, 'D', 'm', 0.7),
+    (1606, 'G', 'green', 0.85),
+    (2735, '2D', 'purple', 0.85)
+]
+
+buffer_peaks = [
+    (1360, 'D', 'm', 0.7),
+    (1492, 'B', 'm', 0.6),
+    (1606, 'G', 'green', 0.85),
+    (2735, '2D', 'purple', 0.85)
+]
+
 # -----------------------------
 # Paths
 # -----------------------------
@@ -136,7 +149,7 @@ def plot_spatial_dataset_mean(ds: xr.Dataset, annotations_letters: List[str]):
     fig.align_ylabels([ax1, ax2])
     # plt.tight_layout()
 
-    return fig
+    return fig, ax1, ax2
 
 if __name__ == "__main__":
     graphene_path = DATA_DIR / "min70_highf/buffer+graphene/main/unmixed_by_min70_highf_main_8x8_Mixed_8x8.nc"
@@ -145,14 +158,41 @@ if __name__ == "__main__":
     graphene_ds = xr.load_dataset(graphene_path)
     buffer_ds = xr.load_dataset(buffer_path)
 
-    fig1 = plot_spatial_dataset_mean(graphene_ds, annotations_letters=['(a)', '(c)'])
-    fig2 = plot_spatial_dataset_mean(buffer_ds, annotations_letters=['(b)', '(d)'])
+    fig1, ax1, ax2 = plot_spatial_dataset_mean(graphene_ds, annotations_letters=['(a)', '(c)'])
+    for x, label, _, y in graphene_peaks:
+        ax2.axvline(x=x, color='black', linestyle='--', alpha=0.6)
+        ax2.text(
+            x=x,
+            y=y,
+            s=f"{label}\n{x}",
+            transform=ax2.get_xaxis_transform(),
+            ha='center',
+            va='bottom',
+            color='black',
+            bbox=dict(boxstyle='round', fc='white', alpha=0.85),
+            fontsize='x-small'
+        )
+    fig2, ax1, ax2 = plot_spatial_dataset_mean(buffer_ds, annotations_letters=['(b)', '(d)'])
+    for x, label, _, y in buffer_peaks:
+        ax2.axvline(x=x, color='black', linestyle='--', alpha=0.6)
+        ax2.text(
+            x=x,
+            y=y,
+            s=f"{label}\n{x}",
+            transform=ax2.get_xaxis_transform(),
+            ha='center',
+            va='bottom',
+            color='black',
+            bbox=dict(boxstyle='round', fc='white', alpha=0.85),
+            fontsize='x-small'
+        )
     # plt.show()
 
-    outdir = SCRIPT_DIR / "temp"
+    outdir = SCRIPT_DIR / "temp2"
     outdir.mkdir(parents=True, exist_ok=True)
-    fig1.savefig(outdir / "fig3_graphene.png", dpi=90, transparent=True, bbox_inches='tight')
-    fig2.savefig(outdir / "fig3_buffer.png", dpi=90, transparent=True, bbox_inches='tight')
+    fig1.savefig(outdir / "fig3_graphene.png", dpi=300, transparent=True, bbox_inches='tight')
+    fig2.savefig(outdir / "fig3_buffer.png", dpi=300, transparent=True, bbox_inches='tight')
     
     fig1.savefig(outdir / "fig3_graphene.svg", transparent=True, bbox_inches='tight')
     fig2.savefig(outdir / "fig3_buffer.svg", transparent=True, bbox_inches='tight')
+    print("Done.")

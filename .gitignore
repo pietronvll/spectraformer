@@ -214,7 +214,7 @@ orbax/
 *.gif
 *.pdf
 *.svg
-*temp/
+*temp*/
 
 .conda
 

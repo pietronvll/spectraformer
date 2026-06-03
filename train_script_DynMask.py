@@ -187,6 +187,7 @@ def main(args: TrainArgs) -> None:
     is_early_stop = True if not hasattr(configs, 'is_early_stop') else configs.is_early_stop # turning on early stopping process
     min_delta = 1e-4 if not hasattr(configs, 'early_stop_min_delta') else configs.early_stop_min_delta
     patience = 5 if not hasattr(configs, 'early_stop_patience') else configs.early_stop_patience
+    is_masked_loss = False if not hasattr(configs, 'is_masked_loss') else configs.is_masked_loss
     
     if training_regime=="All devices" and configs.batch_size % num_devices !=0:
         raise Exception(f"Sharding requires batch size divisibility by the number of devices. Change it accordingly (preferably to 24).")
@@ -539,6 +540,7 @@ def main(args: TrainArgs) -> None:
             mean_streams,
             num_devices,
             configs.loss_fn,
+            is_masked_loss,
         )
         if args.debug_logging:
             logger.debug("Warmup lower+compile completed")
@@ -552,6 +554,7 @@ def main(args: TrainArgs) -> None:
             steps=warmup_steps,
             run_train=True,
             run_val=False,
+            is_masked_loss=is_masked_loss,
         )
         warmup_compile_pmap(
             state,
@@ -563,6 +566,7 @@ def main(args: TrainArgs) -> None:
             steps=1,
             run_train=False,
             run_val=True,
+            is_masked_loss=is_masked_loss,
         )
     else:
         warmup_compile_single(
@@ -573,6 +577,7 @@ def main(args: TrainArgs) -> None:
             steps=warmup_steps,
             run_train=True,
             run_val=False,
+            is_masked_loss=is_masked_loss,
         )
         warmup_compile_single(
             state,
@@ -582,6 +587,7 @@ def main(args: TrainArgs) -> None:
             steps=1,
             run_train=False,
             run_val=True,
+            is_masked_loss=is_masked_loss,
         )
     if args.debug_logging:
         logger.debug("Warmup compile completed")
@@ -649,7 +655,8 @@ def main(args: TrainArgs) -> None:
                         train_start = time.perf_counter()
                     state, train_metrics_ds = train_epoch(
                         state, epoch, train_ds, configs, rng_streams,
-                        metric_writer, ckpt_manager, window_RNG_key, mean_streams
+                        metric_writer, ckpt_manager, window_RNG_key, mean_streams,
+                        is_masked_loss=is_masked_loss
                     )
                     if args.debug_logging:
                         logger.debug(
@@ -662,7 +669,8 @@ def main(args: TrainArgs) -> None:
                         val_start = time.perf_counter()
                     state, val_metrics_ds = validation_epoch(
                         state, epoch, val_ds, configs, rng_streams, 
-                        metric_writer, ckpt_manager, mean_streams
+                        metric_writer, ckpt_manager, mean_streams,
+                        is_masked_loss=is_masked_loss
                     )
                     if args.debug_logging:
                         logger.debug(
@@ -677,7 +685,8 @@ def main(args: TrainArgs) -> None:
                     state, train_metrics_ds = train_epoch_pmap(
                         state=state, epoch=epoch, train_ds=train_ds, configs=configs, 
                         rng_streams=rng_streams, metric_writer=metric_writer, ckpt_manager=ckpt_manager, 
-                        window_RNG_key=window_RNG_key, mean_streams=mean_streams
+                        window_RNG_key=window_RNG_key, mean_streams=mean_streams,
+                        is_masked_loss=is_masked_loss
                         )
                     if args.debug_logging:
                         logger.debug(
@@ -690,7 +699,8 @@ def main(args: TrainArgs) -> None:
                     state, val_metrics_ds = validation_epoch_pmap(
                         state=state, epoch=epoch, val_ds=val_ds, configs=configs, 
                         rng_streams=rng_streams, metric_writer=metric_writer, ckpt_manager=ckpt_manager,
-                        window_RNG_key=window_RNG_key, mean_streams=mean_streams
+                        window_RNG_key=window_RNG_key, mean_streams=mean_streams,
+                        is_masked_loss=is_masked_loss
                         )
                     if args.debug_logging:
                         logger.debug(

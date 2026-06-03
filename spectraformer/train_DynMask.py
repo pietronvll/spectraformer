@@ -50,14 +50,14 @@ def _hidden_region_mask(mask):
     return hidden_mask
 
 
-def _masked_gamma_loss(target, pred, mask, reduction: str, eps: float = 1e-8, is_mask=False):
+def _masked_gamma_loss(target, pred, mask, reduction: str, eps: float = 1e-8, is_masked_loss=True):
     """Gamma deviance computed only on hidden positions."""
     target = jnp.clip(target, eps, None)
     pred = jnp.clip(pred, eps, None)
     ratio = target / pred
     loss_array = (ratio - 1.0) - jnp.log(ratio)
 
-    hidden_mask = _hidden_region_mask(mask).astype(loss_array.dtype) if is_mask else jnp.ones_like(loss_array)
+    hidden_mask = _hidden_region_mask(mask).astype(loss_array.dtype) if is_masked_loss else jnp.ones_like(loss_array)
     masked_loss_array = loss_array * hidden_mask
     masked_count = jnp.maximum(jnp.sum(hidden_mask), 1.0)
 
@@ -226,6 +226,7 @@ def warmup_compile_single(
     steps: int = 1,
     run_train: bool = True,
     run_val: bool = True,
+    is_masked_loss: bool = True,
 ):
     for _ in range(max(1, steps)):
         if run_train:
@@ -234,6 +235,7 @@ def warmup_compile_single(
                 batch,
                 rng_streams["dropout"],
                 mean_streams["mean"],
+                is_masked_loss,
             )
             jax.block_until_ready(train_metrics)
         if run_val:
@@ -242,6 +244,7 @@ def warmup_compile_single(
                 batch,
                 rng_streams["dropout"],
                 mean_streams["mean"],
+                is_masked_loss,
             )
             jax.block_until_ready(val_metrics)
 
@@ -256,6 +259,7 @@ def warmup_compile_pmap(
     steps: int = 1,
     run_train: bool = True,
     run_val: bool = True,
+    is_masked_loss: bool = True,
 ):
     match mean_streams["mean"]:
         case "Arithmetic":
@@ -281,6 +285,7 @@ def warmup_compile_pmap(
                 dropout_sharded,
                 num_devices,
                 loss_fn,
+                is_masked_loss,
             )
             jax.block_until_ready(train_metrics)
         if run_val:
@@ -290,6 +295,7 @@ def warmup_compile_pmap(
                 dropout_sharded,
                 num_devices,
                 loss_fn,
+                is_masked_loss,
             )
             jax.block_until_ready(val_metrics)
 
@@ -301,6 +307,7 @@ def warmup_lower_compile_pmap(
     mean_streams,
     num_devices: int,
     loss_fn: str,
+    is_masked_loss: bool = True,
 ):
     match mean_streams["mean"]:
         case "Arithmetic":
@@ -324,6 +331,7 @@ def warmup_lower_compile_pmap(
         dropout_sharded,
         num_devices,
         loss_fn,
+        is_masked_loss,
     ).compile()
 
     validation_step_pmap.lower(
@@ -332,6 +340,7 @@ def warmup_lower_compile_pmap(
         dropout_sharded,
         num_devices,
         loss_fn,
+        is_masked_loss,
     ).compile()
 
 
@@ -380,12 +389,13 @@ def shard_batch(batch: Batch) -> Batch:
     return Batch(**sharded_batch)
 
 
-@partial(jax.jit, static_argnames=("configs_mean",))
+@partial(jax.jit, static_argnames=("configs_mean", "is_masked_loss"))
 def train_step(
     state: TrainState, 
     batch: Batch, 
     dropout_key,
-    configs_mean
+    configs_mean,
+    is_masked_loss=True
 ):
     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
     
@@ -406,6 +416,7 @@ def train_step(
             pred_spectra,
             batch["mask"],
             reduction=configs_mean,
+            is_masked_loss=is_masked_loss,
         )
         
         return loss
@@ -436,12 +447,13 @@ def train_step(
         }
     return state, train_metrics
 
-@partial(jax.jit, static_argnames=("configs_mean",))
+@partial(jax.jit, static_argnames=("configs_mean", "is_masked_loss"))
 def validation_step(
     state: TrainState, 
     batch: Batch, 
     dropout_key,
-    configs_mean
+    configs_mean,
+    is_masked_loss=True
 ):
     dropout_val_key = jax.random.fold_in(key=dropout_key, data=state.step)
     
@@ -462,6 +474,7 @@ def validation_step(
             pred_spectra,
             batch["mask"],
             reduction=configs_mean,
+            is_masked_loss=is_masked_loss,
         )
         return loss
 
@@ -475,7 +488,8 @@ def validation_step(
     return state, val_metrics
 
 def train_epoch(
-    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams
+    state, epoch: int, train_ds, configs, rng_streams, metric_writer, ckpt_manager, window_RNG_key, mean_streams,
+    is_masked_loss: bool = True,
 ):
     masked_interval_starts_config = configs.masked_interval_starts
     masked_interval_ends_config = configs.masked_interval_ends
@@ -580,7 +594,7 @@ def train_epoch(
                 )
         if debug_logging: 
             step_start = time.perf_counter()
-        state, batch_metrics = train_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
+        state, batch_metrics = train_step(state, batch, rng_streams["dropout"], mean_streams["mean"], is_masked_loss)
         if debug_logging: 
             step_time = time.perf_counter() - step_start
         if debug_logging and _should_log_batch(batch_idx, debug_log_every_batches):
@@ -615,7 +629,8 @@ def train_epoch(
     return state, metrics
 
 def validation_epoch(
-    state, epoch: int, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams
+    state, epoch: int, val_ds, configs, rng_streams, metric_writer, ckpt_manager, mean_streams,
+    is_masked_loss: bool = True,
 ):
     dynamic_mask = getattr(configs, "dynamic_mask", False)
     debug_logging = getattr(configs, "debug_logging", False)
@@ -702,7 +717,7 @@ def validation_epoch(
                 )
         if debug_logging: 
             step_start = time.perf_counter()
-        state, batch_metrics = validation_step(state, batch, rng_streams["dropout"], mean_streams["mean"])
+        state, batch_metrics = validation_step(state, batch, rng_streams["dropout"], mean_streams["mean"], is_masked_loss)
         if debug_logging: 
             step_time = time.perf_counter() - step_start
         if debug_logging and _should_log_batch(batch_idx, debug_log_every_batches):
@@ -739,7 +754,7 @@ def validation_epoch(
 @partial(
     jax.pmap,
     axis_name="batch",
-    static_broadcasted_argnums=(3,4)  # Add static arg
+    static_broadcasted_argnums=(3,4,5)  # Add static arg
 )
 # @jax.jit
 def train_step_pmap_arithmetic(
@@ -747,7 +762,8 @@ def train_step_pmap_arithmetic(
     batch,
     dropout_key,
     num_devices: int,  # Passed explicitly
-    loss_fn: str = "CorrGamma"  # Default loss function
+    loss_fn: str = "CorrGamma",  # Default loss function
+    is_masked_loss: bool = True
 ):
     # Get device index for unique key folding
     device_idx = lax.axis_index('batch')
@@ -773,6 +789,7 @@ def train_step_pmap_arithmetic(
             pred_spectra,
             batch["mask"],
             reduction="Arithmetic",
+            is_masked_loss=is_masked_loss,
         )
         
         return local_loss # scalar per device
@@ -837,7 +854,7 @@ def train_step_pmap_arithmetic(
 @partial(
     jax.pmap,
     axis_name="batch",
-    static_broadcasted_argnums=(3,4)  # Add static arg
+    static_broadcasted_argnums=(3,4,5)  # Add static arg
 )
 # @jax.jit
 def validation_step_pmap_arithmetic(
@@ -845,7 +862,8 @@ def validation_step_pmap_arithmetic(
     batch, 
     dropout_key,
     num_devices: int,  # Passed explicitly
-    loss_fn: str = "CorrGamma"  # Default loss function
+    loss_fn: str = "CorrGamma",  # Default loss function
+    is_masked_loss: bool = True
 ):
     # Get device index for unique key folding
     device_idx = lax.axis_index('batch')
@@ -872,6 +890,7 @@ def validation_step_pmap_arithmetic(
             pred_spectra,
             batch["mask"],
             reduction="Arithmetic",
+            is_masked_loss=is_masked_loss,
         )
         
         return local_loss # scalar per device
@@ -913,14 +932,15 @@ def validation_step_pmap_arithmetic(
 @partial(
     jax.pmap,
     axis_name="batch",
-    static_broadcasted_argnums=(3,)  # Add static arg
+    static_broadcasted_argnums=(3,4)  # Add static arg
 )
 # @jax.jit
 def train_step_pmap_geometric(
     state: TrainState,
     batch,
     dropout_key,
-    num_devices: int  # Passed explicitly
+    num_devices: int,  # Passed explicitly
+    is_masked_loss: bool = True
 ):
     # Get device index for unique key folding
     device_idx = lax.axis_index('batch')
@@ -946,6 +966,7 @@ def train_step_pmap_geometric(
             pred_spectra,
             batch["mask"],
             reduction="Geometric",
+            is_masked_loss=is_masked_loss,
         )
         
         return local_loss # scalar per device
@@ -997,14 +1018,15 @@ def train_step_pmap_geometric(
 @partial(
     jax.pmap,
     axis_name="batch",
-    static_broadcasted_argnums=(3,)  # Add static arg
+    static_broadcasted_argnums=(3,4)  # Add static arg
 )
 # @jax.jit
 def validation_step_pmap_geometric(
     state: TrainState, 
     batch, 
     dropout_key,
-    num_devices: int  # Passed explicitly
+    num_devices: int,  # Passed explicitly
+    is_masked_loss: bool = True
 ):
     # Get device index for unique key folding
     device_idx = lax.axis_index('batch')
@@ -1030,6 +1052,7 @@ def validation_step_pmap_geometric(
             pred_spectra,
             batch["mask"],
             reduction="Geometric",
+            is_masked_loss=is_masked_loss,
         )
         
         return local_loss # scalar per device
@@ -1057,7 +1080,8 @@ def train_epoch_pmap(
     metric_writer, 
     ckpt_manager, 
     window_RNG_key, 
-    mean_streams
+    mean_streams,
+    is_masked_loss: bool = True
 ):
     # Choosing the train step function WITHOUT pmapping scalar string
     match mean_streams["mean"]:
@@ -1194,7 +1218,8 @@ def train_epoch_pmap(
             batch_sharded, 
             dropout_sharded,
             num_devices,
-            loss_fn
+            loss_fn,
+            is_masked_loss
             )
         if debug_logging: 
             step_time = time.perf_counter() - step_start
@@ -1243,7 +1268,8 @@ def validation_epoch_pmap(
     metric_writer, 
     ckpt_manager, 
     window_RNG_key, 
-    mean_streams
+    mean_streams,
+    is_masked_loss: bool = True
 ):
     # Choosing the train step function WITHOUT pmapping scalar string
     match mean_streams["mean"]:
@@ -1369,7 +1395,8 @@ def validation_epoch_pmap(
             batch_sharded, 
             dropout_sharded,
             num_devices,
-            loss_fn
+            loss_fn,
+            is_masked_loss
             )
         if debug_logging: 
             step_time = time.perf_counter() - step_start

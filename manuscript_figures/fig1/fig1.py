@@ -133,7 +133,7 @@ for ax in (ax_a_top, ax_a_bottom):
     ax.axis("off")
 import matplotlib.image as mpimg
 
-img_side = mpimg.imread(SCRIPT_DIR / "temp/cropped-high-res-figures/SiC_side-view.png")
+img_side = mpimg.imread(SCRIPT_DIR / "temp/cropped-high-res-figures/side_view_with_MLG-ZLG-SiC_96dpi.png")
 img_top  = mpimg.imread(SCRIPT_DIR / "temp/cropped-high-res-figures/SiC_top-view.png")
 
 ax_a_top.imshow(img_side).set_rasterized(True)
@@ -280,8 +280,8 @@ plt.show()
 outdir = SCRIPT_DIR / "temp/fig1-output"
 outdir.mkdir(parents=True, exist_ok=True)
 
-filename = "fig1"
+filename = "fig1_with_MLG-ZLG-SiC"
 # fig.savefig(outdir / f"{filename}.eps", transparent=True, bbox_inches='tight')
 fig.savefig(outdir / f"{filename}.svg", transparent=True, bbox_inches='tight', dpi=300)
-# fig.savefig(outdir / f"{filename}.png", transparent=True, dpi=96, bbox_inches='tight')
+fig.savefig(outdir / f"{filename}.png", transparent=True, dpi=300, bbox_inches='tight')
 # fig.savefig(outdir / f"{filename}.pdf", transparent=True, bbox_inches='tight')
